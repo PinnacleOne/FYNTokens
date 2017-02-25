@@ -12,8 +12,32 @@ contract owned {
     }
 
     function transferOwnership(address newOwner) onlyOwner {
-        owner = newOwner;
+	if (newOwner != address(0)) owner = newOwner;
     }
+}
+
+/*
+ * Stoppable
+ * Abstract contract that allows children to implement an
+ * emergency stop mechanism.
+ */
+
+contract Stoppable is owned  {
+  bool public stopped;
+
+  modifier stopInEmergency { if (!stopped) _; }
+  modifier onlyInEmergency { if (stopped) _; }
+
+  // called by the owner on emergency, triggers stopped state
+  function emergencyStop() external onlyOwner {
+    stopped = true;
+  }
+
+  // called by the owner on end of emergency, returns to normal state
+  function release() external onlyOwner onlyInEmergency {
+    stopped = false;
+  }
+
 }
 
 contract tokenRecipient { function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData); }
@@ -92,7 +116,7 @@ contract token {
     }
 }
 
-contract MyAdvancedToken is owned, token {
+contract MyAdvancedToken is owned, token, Stoppable {
 
     uint256 public sellPrice;
     uint256 public buyPrice;
