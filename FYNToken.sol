@@ -12,7 +12,7 @@ contract owned {
     }
 
     function transferOwnership(address newOwner) onlyOwner {
-	if (newOwner != address(0)) owner = newOwner;
+    if (newOwner != address(0)) owner = newOwner;
     }
 }
 
@@ -98,10 +98,6 @@ contract token {
             return true;
         }
     }
-
-    function (){
-        throw;     // Prevents accidental sending of ether
-    }
 }
 
 contract MyAdvancedToken is owned, token, Stoppable {
@@ -114,44 +110,45 @@ contract MyAdvancedToken is owned, token, Stoppable {
 
     /* This generates a public event on the blockchain that will notify clients */
     event FrozenFunds(address target, bool frozen);
+    event TokenBuyBack(address target, uint256 amount);
+    event ExchangeTransfer(address from, address to, uint256 amount);
 
     /* Initializes contract with initial supply tokens to the creator of the contract */
     function MyAdvancedToken(
         uint256 initialSupply,
         string tokenName,
         uint8 decimalUnits,
-        string tokenSymbol,
+        string tokenSymbol
     ) token (initialSupply, tokenName, decimalUnits, tokenSymbol) {
         balanceOf[this] = initialSupply;                     // Give the owner all initial tokens
     }
 
     /* Send coins */
     function transfer(address _to, uint256 _value) stopInEmergency {
-        if (frozenAccount[msg.sender]) throw;                // Check if frozen
-        if (balanceOf[msg.sender] < _value) throw;           // Check if the sender has enough
-        if (balanceOf[_to] + _value < balanceOf[_to]) throw; // Check for overflows
-	if (_to == this) {                                    // Transfer to contract (sell)
-	   if (sellPrice > 0) {                               // Check if selling is enabled
-	      balanceOf[this] += amount;                      // adds the amount to owner's balance
-	      balanceOf[seller] -= amount;                    // subtracts the amount from seller's balance
-	      if (!msg.sender.send(amount * sellPrice)) {     // sends ether to the seller. It's important
-		 throw;                                       // to do this last to avoid recursion attacks
-	      } else {
-		 TokenBuyBack(msg.sender, amount);            // executes an event reflecting on the change
-	      }               
-	   } else {
-	      throw;                                          // Selling not enabled
-	   }
-	} else {                                              // Normal Transfer
-           balanceOf[msg.sender] -= _value;                     // Subtract from the sender
-           balanceOf[_to] += _value;                            // Add the same to the recipient
-           Transfer(msg.sender, _to, _value);                   // Notify anyone listening that this transfer took place
+        if (frozenAccount[msg.sender]) throw;                    // Check if frozen
+        if (balanceOf[msg.sender] < _value) throw;               // Check if the sender has enough
+        if (balanceOf[_to] + _value < balanceOf[_to]) throw;     // Check for overflows
+        if (_to == address(this)) {                               // Transfer to contract
+            if (sellPrice > 0) {                                 // Check if selling is enabled
+                balanceOf[this] += _value;                 // adds the amount to contract's balance
+                balanceOf[msg.sender]   -= _value;                 // subtracts the amount from seller's balance
+                if (!msg.sender.send(_value * sellPrice)) {      // sends ether to the seller. It's important
+                    throw;                                       // to do this last to avoid recursion attacks
+                } else {
+                    TokenBuyBack(msg.sender, _value);            // executes an event reflecting on the change
+                }
+            } else {
+                throw;                                           // Selling not enabled
+            }
+        } else {                                                 // Normal Transfer
+               balanceOf[msg.sender] -= _value;                  // Subtract from the sender
+               balanceOf[_to] += _value;                         // Add the same to the recipient
+               Transfer(msg.sender, _to, _value);                // Notify anyone listening that this transfer took place
         }
     }
 
-
     /* A contract attempts to get the coins */
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) stopInEmergency {
+    function transferFrom(address _from, address _to, uint256 _value) stopInEmergency returns (bool success) {
         if (frozenAccount[_from]) throw;                      // Check if frozen            
         if (balanceOf[_from] < _value) throw;                 // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw;  // Check for overflows
@@ -173,11 +170,11 @@ contract MyAdvancedToken is owned, token, Stoppable {
         buyPrice = newBuyPrice;
     }
 
-    function () payable stopInEmergency {
+    function () payable {
         uint amount = msg.value / buyPrice;                // calculates the amount
         if (balanceOf[this] < amount) throw;               // checks if it has enough to sell
-        balanceOf[msg.sender] += amount;                   // adds the amount to buyer's balance
-        balanceOf[this] -= amount;                         // subtracts amount from seller's balance
+        balanceOf[msg.sender]   += amount;                 // adds the amount to buyer's balance
+        balanceOf[this]         -= amount;                 // subtracts amount from seller's balance
         Transfer(this, msg.sender, amount);                // execute an event reflecting the change
     }
 
