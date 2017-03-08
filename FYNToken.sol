@@ -13,7 +13,7 @@ contract owned {
     }
 
     function transferOwnership(address newOwner) onlyOwner {
-    if (newOwner != address(0)) owner = newOwner;
+       if (newOwner != address(0)) owner = newOwner;
     }
 }
 
@@ -23,7 +23,7 @@ contract owned {
  * emergency stop mechanism.
  */
 
-contract Stoppable is owned  {
+contract Stoppable is owned {
   bool public stopped;
 
   modifier stopInEmergency { if (!stopped) _; }
@@ -101,10 +101,9 @@ contract token {
     }
 }
 
-contract MyAdvancedToken is owned, token, Stoppable {
+contract MyFYNToken is owned, token, Stoppable {
 
-    uint256 public sellPrice;
-    uint256 public buyPrice;
+    uint256 public sellTokenForWei;
     uint256 public totalSupply;
     uint256 public founderReserve; 
     mapping (address => bool) public frozenAccount;
@@ -122,30 +121,30 @@ contract MyAdvancedToken is owned, token, Stoppable {
         string tokenSymbol
     ) token (initialSupply, tokenName, decimalUnits, tokenSymbol) {
         balanceOf[this] = initialSupply;                         // Give the owner all initial tokens
-	founderReserve = initialSupply * 0.2;                    // 20% reserved for founders
+        founderReserve = initialSupply * 0.2;                    // 20% reserved for founders
     }
 
     /* Send coins */
     function transfer(address _to, uint256 _value) stopInEmergency {
-        if (frozenAccount[msg.sender]) throw;                    // Check if frozen
-        if (balanceOf[msg.sender] < _value) throw;               // Check if the sender has enough
-        if (balanceOf[_to] + _value < balanceOf[_to]) throw;     // Check for overflows
-        if (_to == address(this)) {                              // Transfer to contract
-            if (sellPrice > 0) {                                 // Check if selling is enabled
-                balanceOf[this] += _value;                       // adds the amount to contract's balance
-                balanceOf[msg.sender]   -= _value;               // subtracts the amount from seller's balance
-                if (!msg.sender.send(_value * sellPrice)) {      // sends ether to the seller. It's important
-                    throw;                                       // to do this last to avoid recursion attacks
+        if (frozenAccount[msg.sender]) throw;                     // Check if frozen
+        if (balanceOf[msg.sender] < _value) throw;                // Check if the sender has enough
+        if (balanceOf[_to] + _value < balanceOf[_to]) throw;      // Check for overflows
+        if (_to == address(this)) {                               // Transfer to contract
+            if (sellPrice > 0) {                                  // Check if selling is enabled
+                balanceOf[this]       += _value;                  // adds the amount to contract's balance
+                balanceOf[msg.sender] -= _value;                  // subtracts the amount from seller's balance
+                if (!msg.sender.send(_value / sellTokenForWei)) { // sends ether to the seller. It's important
+                    throw;                                        // to do this last to avoid recursion attacks
                 } else {
-                    TokenBuyBack(msg.sender, _value);            // executes an event reflecting on the change
+                    TokenBuyBack(msg.sender, _value);             // executes an event reflecting on the change
                 }
             } else {
-                throw;                                           // Selling not enabled
-            }
-        } else {                                                 // Normal Transfer
-               balanceOf[msg.sender] -= _value;                  // Subtract from the sender
-               balanceOf[_to] += _value;                         // Add the same to the recipient
-               Transfer(msg.sender, _to, _value);                // Notify anyone listening that this transfer took place
+                throw;                                            // Selling back to contract not enabled
+            } 
+        } else {                                                  // Normal Transfer
+               balanceOf[msg.sender] -= _value;                   // Subtract from the sender
+               balanceOf[_to]        += _value;                   // Add the same to the recipient
+               Transfer(msg.sender, _to, _value) ;                // Notify anyone listening that this transfer took place
         }
     }
 
@@ -168,8 +167,8 @@ contract MyAdvancedToken is owned, token, Stoppable {
     }
 
     function setPrices(uint256 newSellPrice, uint256 newBuyPrice) onlyOwner {
-        sellPrice = newSellPrice;
-        buyPrice = newBuyPrice;
+        if (newSellPrice <= 100)             // Sell price should never exceed initial unbonused tokenPerWei
+            sellTokenForWei = newSellPrice;
     }
 
     function withdrawEther(uint256 amount) onlyOwner {
@@ -178,20 +177,24 @@ contract MyAdvancedToken is owned, token, Stoppable {
     }
 
     function withdrawReserve(uint256 amount) onlyOwner {
-	if (amount > balanceOf[this]) throw;                                 // If founders withdraw more than balance, reject
+        if (amount > balanceOf[this]) throw;                                 // If founders withdraw more than balance, reject
         if (initialSupply * 0.2 - founderReserve) + amount >                 // If founders will withdraw more than
            (initialSupply - balanceOf[this] - founderReserve) * 0.2) throw;  // 20% of tokens already sold, reject
         balanceOf[owner]       += amount;
-	balanceOf[this]        -= amount;	
+        balanceOf[this]        -= amount;    
         withdrewReserve( amount );
     }
 
     function () payable StopInEmergency {
-        uint amount = msg.value / buyPrice;                    // calculates the amount
-        if (balanceOf[this] < amount + founderReserve) throw;  // checks if it has enough to sell
-        balanceOf[msg.sender]   += amount;                     // adds the amount to buyer's balance
-        balanceOf[this]         -= amount;                     // subtracts amount from seller's balance
-        Transfer(this, msg.sender, amount);                    // execute an event reflecting the change
+        if ((balanceOf[this] - msg.value * 120) * 5 > initalSupply * 4) // Avoid division. If purchase will still mean
+            tokenPerWei = 120;                                          // less than 1/5 of token sold, 20% bonus applies
+        else
+            tokenPerWei = 100;         
+        uint amount = msg.value * tokenPerWei;                          // calculates the amount
+        if (balanceOf[this] < amount + founderReserve) throw;           // checks if it has enough to sell
+        balanceOf[msg.sender]   += amount;                              // adds the amount to buyer's balance
+        balanceOf[this]         -= amount;                              // subtracts amount from seller's balance
+        Transfer(this, msg.sender, amount);                             // execute an event reflecting the change
     }
 
 }
