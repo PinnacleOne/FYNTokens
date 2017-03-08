@@ -103,25 +103,28 @@ contract token {
 
 contract MyFYNToken is owned, token, Stoppable {
 
-    uint256 public sellTokenForWei;
+    uint256 public sellTokensForWei;
     uint256 public totalSupply;
     uint256 public founderReserve; 
+    uint256 public initialSupply;
     mapping (address => bool) public frozenAccount;
 
     /* This generates a public event on the blockchain that will notify clients */
     event FrozenFunds(address target, bool frozen);
     event TokenBuyBack(address target, uint256 amount);
     event ExchangeTransfer(address from, address to, uint256 amount);
+    event withdrewEther(uint256 amount);
+    event withdrewReserve(uint256 amount);
 
     /* Initializes contract with initial supply tokens to the creator of the contract */
-    function MyAdvancedToken(
+    function MyFYNToken(
         uint256 initialSupply,
         string tokenName,
         uint8 decimalUnits,
         string tokenSymbol
     ) token (initialSupply, tokenName, decimalUnits, tokenSymbol) {
         balanceOf[this] = initialSupply;                         // Give the owner all initial tokens
-        founderReserve = initialSupply * 0.2;                    // 20% reserved for founders
+        founderReserve = initialSupply / 5;                      // 20% reserved for founders
     }
 
     /* Send coins */
@@ -130,10 +133,10 @@ contract MyFYNToken is owned, token, Stoppable {
         if (balanceOf[msg.sender] < _value) throw;                // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw;      // Check for overflows
         if (_to == address(this)) {                               // Transfer to contract
-            if (sellPrice > 0) {                                  // Check if selling is enabled
+            if (sellTokensForWei > 0) {                                  // Check if selling is enabled
                 balanceOf[this]       += _value;                  // adds the amount to contract's balance
                 balanceOf[msg.sender] -= _value;                  // subtracts the amount from seller's balance
-                if (!msg.sender.send(_value / sellTokenForWei)) { // sends ether to the seller. It's important
+                if (!msg.sender.send(_value / sellTokensForWei)) { // sends ether to the seller. It's important
                     throw;                                        // to do this last to avoid recursion attacks
                 } else {
                     TokenBuyBack(msg.sender, _value);             // executes an event reflecting on the change
@@ -168,25 +171,34 @@ contract MyFYNToken is owned, token, Stoppable {
 
     function setPrices(uint256 newSellPrice, uint256 newBuyPrice) onlyOwner {
         if (newSellPrice <= 100)             // Sell price should never exceed initial unbonused tokenPerWei
-            sellTokenForWei = newSellPrice;
+            sellTokensForWei = newSellPrice;
     }
 
     function withdrawEther(uint256 amount) onlyOwner {
-        owner.send( amount );
-        withdrewEther( amount );
+        if (!owner.send( amount )) {
+            throw;
+        } else {
+            withdrewEther( amount );
+        }
     }
 
     function withdrawReserve(uint256 amount) onlyOwner {
-        if (amount > balanceOf[this]) throw;                                 // If founders withdraw more than balance, reject
-        if (initialSupply * 0.2 - founderReserve) + amount >                 // If founders will withdraw more than
-           (initialSupply - balanceOf[this] - founderReserve) * 0.2) throw;  // 20% of tokens already sold, reject
+        if (amount > balanceOf[this]) throw;                        // If founders withdraw more than balance, reject
+
+        // if (initialSupply * 0.2 - founderReserve) + amount >     // If founders will withdraw more than 20% of the
+        //   (initialSupply - balanceOf[this] - founderReserve) * 0.2) throw;  // tokens already sold, reject
+        // Above equation is more readable, but simplifies to the equation below
+
+        if ( founderReserve * 4 - amount * 5 < balanceOf[this] )    // If founders will withdraw more than
+            throw;                                                  // 20% of tokens already sold, reject
         balanceOf[owner]       += amount;
         balanceOf[this]        -= amount;    
         withdrewReserve( amount );
     }
 
-    function () payable StopInEmergency {
-        if ((balanceOf[this] - msg.value * 120) * 5 > initalSupply * 4) // Avoid division. If purchase will still mean
+    function () payable stopInEmergency  {
+        uint256 tokenPerWei;
+        if ((balanceOf[this] - msg.value * 120) * 5 > totalSupply * 4)  // Avoid division. If purchase will still mean
             tokenPerWei = 120;                                          // less than 1/5 of token sold, 20% bonus applies
         else
             tokenPerWei = 100;         
@@ -195,6 +207,6 @@ contract MyFYNToken is owned, token, Stoppable {
         balanceOf[msg.sender]   += amount;                              // adds the amount to buyer's balance
         balanceOf[this]         -= amount;                              // subtracts amount from seller's balance
         Transfer(this, msg.sender, amount);                             // execute an event reflecting the change
-    }
+    }   
 
 }
