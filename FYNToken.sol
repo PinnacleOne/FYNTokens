@@ -1,4 +1,4 @@
-pragma solidity ^0.4.2;
+pragma solidity ^0.4.9;
 contract owned {
     address public owner;
 
@@ -63,8 +63,9 @@ contract token {
         string tokenName,
         uint8 decimalUnits,
         string tokenSymbol
-        ) {
-        balanceOf[msg.sender] = initialSupply;              // Give the creator all initial tokens
+        ) 
+    {
+        balanceOf[this] = initialSupply;                    // Give the contract all initial tokens
         totalSupply = initialSupply;                        // Update total supply
         name = tokenName;                                   // Set the name for display purposes
         symbol = tokenSymbol;                               // Set the symbol for display purposes
@@ -98,20 +99,7 @@ contract token {
         }
     }
 
-    /* A contract attempts to get the coins */
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        if (balanceOf[_from] < _value) throw;                 // Check if the sender has enough
-        if (balanceOf[_to] + _value < balanceOf[_to]) throw;  // Check for overflows
-        if (_value > allowance[_from][msg.sender]) throw;   // Check allowance
-        balanceOf[_from] -= _value;                          // Subtract from the sender
-        balanceOf[_to] += _value;                            // Add the same to the recipient
-        allowance[_from][msg.sender] -= _value;
-        Transfer(_from, _to, _value);
-        return true;
-    }
-
-    /* This unnamed function is called whenever someone tries to send ether to it */
-    function () {
+    function (){
         throw;     // Prevents accidental sending of ether
     }
 }
@@ -133,41 +121,46 @@ contract MyAdvancedToken is owned, token, Stoppable {
         string tokenName,
         uint8 decimalUnits,
         string tokenSymbol,
-        address centralMinter
     ) token (initialSupply, tokenName, decimalUnits, tokenSymbol) {
-        if(centralMinter != 0 ) owner = centralMinter;      // Sets the owner as specified (if centralMinter is not specified the owner is msg.sender)
-        balanceOf[owner] = initialSupply;                   // Give the owner all initial tokens
+        balanceOf[this] = initialSupply;                     // Give the owner all initial tokens
     }
 
     /* Send coins */
-    function transfer(address _to, uint256 _value) {
+    function transfer(address _to, uint256 _value) stopInEmergency {
+        if (frozenAccount[msg.sender]) throw;                // Check if frozen
         if (balanceOf[msg.sender] < _value) throw;           // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw; // Check for overflows
-        if (frozenAccount[msg.sender]) throw;                // Check if frozen
-        balanceOf[msg.sender] -= _value;                     // Subtract from the sender
-        balanceOf[_to] += _value;                            // Add the same to the recipient
-        Transfer(msg.sender, _to, _value);                   // Notify anyone listening that this transfer took place
+	if (_to == this) {                                    // Transfer to contract (sell)
+	   if (sellPrice > 0) {                               // Check if selling is enabled
+	      balanceOf[this] += amount;                      // adds the amount to owner's balance
+	      balanceOf[seller] -= amount;                    // subtracts the amount from seller's balance
+	      if (!msg.sender.send(amount * sellPrice)) {     // sends ether to the seller. It's important
+		 throw;                                       // to do this last to avoid recursion attacks
+	      } else {
+		 TokenBuyBack(msg.sender, amount);            // executes an event reflecting on the change
+	      }               
+	   } else {
+	      throw;                                          // Selling not enabled
+	   }
+	} else {                                              // Normal Transfer
+           balanceOf[msg.sender] -= _value;                     // Subtract from the sender
+           balanceOf[_to] += _value;                            // Add the same to the recipient
+           Transfer(msg.sender, _to, _value);                   // Notify anyone listening that this transfer took place
+        }
     }
 
 
     /* A contract attempts to get the coins */
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        if (frozenAccount[_from]) throw;                        // Check if frozen            
+    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) stopInEmergency {
+        if (frozenAccount[_from]) throw;                      // Check if frozen            
         if (balanceOf[_from] < _value) throw;                 // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw;  // Check for overflows
-        if (_value > allowance[_from][msg.sender]) throw;   // Check allowance
-        balanceOf[_from] -= _value;                          // Subtract from the sender
-        balanceOf[_to] += _value;                            // Add the same to the recipient
-        allowance[_from][msg.sender] -= _value;
-        Transfer(_from, _to, _value);
+        if (_value > allowance[_from][msg.sender]) throw;     // Check allowance
+        balanceOf[_from] -= _value;                           // Subtract from the sender
+        balanceOf[_to] += _value;                             // Add the same to the recipient
+        allowance[_from][msg.sender] -= _value;               
+        ExchangeTransfer(_from, _to, _value);
         return true;
-    }
-
-    function mintToken(address target, uint256 mintedAmount) onlyOwner {
-        balanceOf[target] += mintedAmount;
-        totalSupply += mintedAmount;
-        Transfer(0, this, mintedAmount);
-        Transfer(this, target, mintedAmount);
     }
 
     function freezeAccount(address target, bool freeze) onlyOwner {
@@ -180,7 +173,7 @@ contract MyAdvancedToken is owned, token, Stoppable {
         buyPrice = newBuyPrice;
     }
 
-    function buy() payable {
+    function () payable stopInEmergency {
         uint amount = msg.value / buyPrice;                // calculates the amount
         if (balanceOf[this] < amount) throw;               // checks if it has enough to sell
         balanceOf[msg.sender] += amount;                   // adds the amount to buyer's balance
@@ -188,14 +181,4 @@ contract MyAdvancedToken is owned, token, Stoppable {
         Transfer(this, msg.sender, amount);                // execute an event reflecting the change
     }
 
-    function sell(uint256 amount) {
-        if (balanceOf[msg.sender] < amount ) throw;        // checks if the sender has enough to sell
-        balanceOf[this] += amount;                         // adds the amount to owner's balance
-        balanceOf[msg.sender] -= amount;                   // subtracts the amount from seller's balance
-        if (!msg.sender.send(amount * sellPrice)) {        // sends ether to the seller. It's important
-            throw;                                         // to do this last to avoid recursion attacks
-        } else {
-            Transfer(msg.sender, this, amount);            // executes an event reflecting on the change
-        }               
-    }
 }
