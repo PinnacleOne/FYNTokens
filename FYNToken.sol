@@ -1,4 +1,5 @@
 pragma solidity ^0.4.9;
+
 contract owned {
     address public owner;
 
@@ -105,7 +106,7 @@ contract MyAdvancedToken is owned, token, Stoppable {
     uint256 public sellPrice;
     uint256 public buyPrice;
     uint256 public totalSupply;
-
+    uint256 public founderReserve; 
     mapping (address => bool) public frozenAccount;
 
     /* This generates a public event on the blockchain that will notify clients */
@@ -120,7 +121,8 @@ contract MyAdvancedToken is owned, token, Stoppable {
         uint8 decimalUnits,
         string tokenSymbol
     ) token (initialSupply, tokenName, decimalUnits, tokenSymbol) {
-        balanceOf[this] = initialSupply;                     // Give the owner all initial tokens
+        balanceOf[this] = initialSupply;                         // Give the owner all initial tokens
+	founderReserve = initialSupply * 0.2;                    // 20% reserved for founders
     }
 
     /* Send coins */
@@ -128,10 +130,10 @@ contract MyAdvancedToken is owned, token, Stoppable {
         if (frozenAccount[msg.sender]) throw;                    // Check if frozen
         if (balanceOf[msg.sender] < _value) throw;               // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw;     // Check for overflows
-        if (_to == address(this)) {                               // Transfer to contract
+        if (_to == address(this)) {                              // Transfer to contract
             if (sellPrice > 0) {                                 // Check if selling is enabled
-                balanceOf[this] += _value;                 // adds the amount to contract's balance
-                balanceOf[msg.sender]   -= _value;                 // subtracts the amount from seller's balance
+                balanceOf[this] += _value;                       // adds the amount to contract's balance
+                balanceOf[msg.sender]   -= _value;               // subtracts the amount from seller's balance
                 if (!msg.sender.send(_value * sellPrice)) {      // sends ether to the seller. It's important
                     throw;                                       // to do this last to avoid recursion attacks
                 } else {
@@ -170,12 +172,26 @@ contract MyAdvancedToken is owned, token, Stoppable {
         buyPrice = newBuyPrice;
     }
 
-    function () payable {
-        uint amount = msg.value / buyPrice;                // calculates the amount
-        if (balanceOf[this] < amount) throw;               // checks if it has enough to sell
-        balanceOf[msg.sender]   += amount;                 // adds the amount to buyer's balance
-        balanceOf[this]         -= amount;                 // subtracts amount from seller's balance
-        Transfer(this, msg.sender, amount);                // execute an event reflecting the change
+    function withdrawEther(uint256 amount) onlyOwner {
+        owner.send( amount );
+        withdrewEther( amount );
+    }
+
+    function withdrawReserve(uint256 amount) onlyOwner {
+	if (amount > balanceOf[this]) throw;                                 // If founders withdraw more than balance, reject
+        if (initialSupply * 0.2 - founderReserve) + amount >                 // If founders will withdraw more than
+           (initialSupply - balanceOf[this] - founderReserve) * 0.2) throw;  // 20% of tokens already sold, reject
+        balanceOf[owner]       += amount;
+	balanceOf[this]        -= amount;	
+        withdrewReserve( amount );
+    }
+
+    function () payable StopInEmergency {
+        uint amount = msg.value / buyPrice;                    // calculates the amount
+        if (balanceOf[this] < amount + founderReserve) throw;  // checks if it has enough to sell
+        balanceOf[msg.sender]   += amount;                     // adds the amount to buyer's balance
+        balanceOf[this]         -= amount;                     // subtracts amount from seller's balance
+        Transfer(this, msg.sender, amount);                    // execute an event reflecting the change
     }
 
 }
