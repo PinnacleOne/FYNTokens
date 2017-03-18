@@ -1,5 +1,11 @@
 pragma solidity ^0.4.9;
 
+/*
+ * Owner
+ * Allows actions to be performed only by owner, designated by creating address
+ * or transferable to another address via the current owner 
+ */
+
 contract owned {
     address public owner;
 
@@ -26,16 +32,17 @@ contract owned {
 contract Stoppable is owned {
   bool public stopped;
 
-  modifier stopInEmergency { if (!stopped) _; }
-  modifier onlyInEmergency { if (stopped) _; }
-
+  modifier stopInEmergency  { if (!stopped) _; }
+  modifier onlyInEmergency  { if (stopped) _; }
+  modifier throwInEmergency { if (!stopped) _; else throw; }
+  
   // called by the owner on emergency, triggers stopped state
   function emergencyStop() external onlyOwner {
     stopped = true;
   }
 
   // called by the owner on end of emergency, returns to normal state
-  function release() external onlyOwner onlyInEmergency {
+  function releaseStop() external onlyOwner onlyInEmergency {
     stopped = false;
   }
 
@@ -133,7 +140,7 @@ contract MyFYNToken is owned, token, Stoppable {
         if (balanceOf[msg.sender] < _value) throw;                // Check if the sender has enough
         if (balanceOf[_to] + _value < balanceOf[_to]) throw;      // Check for overflows
         if (_to == address(this)) {                               // Transfer to contract
-            if (sellTokensForWei > 0) {                                  // Check if selling is enabled
+            if (sellTokensForWei > 0) {                           // Check if selling is enabled
                 balanceOf[this]       += _value;                  // adds the amount to contract's balance
                 balanceOf[msg.sender] -= _value;                  // subtracts the amount from seller's balance
                 if (!msg.sender.send(_value / sellTokensForWei)) { // sends ether to the seller. It's important
@@ -169,8 +176,8 @@ contract MyFYNToken is owned, token, Stoppable {
         FrozenFunds(target, freeze);
     }
 
-    function setPrices(uint256 newSellPrice, uint256 newBuyPrice) onlyOwner {
-        if (newSellPrice <= 100)             // Sell price should never exceed initial unbonused tokenPerWei
+    function setPrices(uint256 newSellPrice) onlyOwner {
+        if (newSellPrice >= 120)             // Sell price should be at least initial bonused tokenPerWei
             sellTokensForWei = newSellPrice;
     }
 
@@ -183,30 +190,34 @@ contract MyFYNToken is owned, token, Stoppable {
     }
 
     function withdrawReserve(uint256 amount) onlyOwner {
-        if (amount > balanceOf[this]) throw;                        // If founders withdraw more than balance, reject
+        if (amount > balanceOf[this]) throw;                          // If founders withdraw more than balance, reject
 
-        // if (initialSupply * 0.2 - founderReserve) + amount >     // If founders will withdraw more than 20% of the
-        //   (initialSupply - balanceOf[this] - founderReserve) * 0.2) throw;  // tokens already sold, reject
-        // Above equation is more readable, but simplifies to the equation below
+        if ((initialSupply / 5 - founderReserve) + amount >           // If founders total withdrawal exceeds
+            (initialSupply - founderReserve - balanceOf[this]) / 4)   // 1/4 of non-reserved tokens, (1 token per 4 tokens sold: 20% reserve)
+          throw;                                                      // reject
 
-        if ( founderReserve * 4 - amount * 5 < balanceOf[this] )    // If founders will withdraw more than
-            throw;                                                  // 20% of tokens already sold, reject
         balanceOf[owner]       += amount;
-        balanceOf[this]        -= amount;    
+        balanceOf[this]        -= amount;
+        founderReserve         -= amount;
         withdrewReserve( amount );
     }
 
-    function () payable stopInEmergency  {
+    function () payable throwInEmergency  {
+        if (frozenAccount[msg.sender]) throw;                           // Check if frozen
         uint256 tokenPerWei;
-        if ((balanceOf[this] - msg.value * 120) * 5 > totalSupply * 4)  // Avoid division. If purchase will still mean
+        if ((balanceOf[this] - msg.value * 120) * 5 > totalSupply * 4)  // If purchase will still mean
             tokenPerWei = 120;                                          // less than 1/5 of token sold, 20% bonus applies
         else
             tokenPerWei = 100;         
-        uint amount = msg.value * tokenPerWei;                          // calculates the amount
+
+        uint amount = msg.value * 100;                                  // calculates the amount
         if (balanceOf[this] < amount + founderReserve) throw;           // checks if it has enough to sell
         balanceOf[msg.sender]   += amount;                              // adds the amount to buyer's balance
         balanceOf[this]         -= amount;                              // subtracts amount from seller's balance
         Transfer(this, msg.sender, amount);                             // execute an event reflecting the change
     }   
 
+    function kill() {                                                   // Will be removed from actual deployment
+        if (msg.sender == owner) selfdestruct(owner);
+    }
 }
