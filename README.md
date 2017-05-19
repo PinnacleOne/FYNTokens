@@ -4,14 +4,15 @@ This repository reflects the current state of development of our FYN tokens.
 
 # Security
 
-An audit will be performed before the launch.
-There will be an ongoing test and debugging on the actual network.
-The alpha and beta launches are scheduled 2 weeks and 4 weeks before actual launch.
-The alpha and beta will also be launched on the actual network, with a seeded bounty of 50ETH and 100ETH respectively.
+The code inherits the audited ICO codebase from VDice.io (https://blog.vdice.io/crowdsale-smart-contract-code-audits). Funds will be held in a 2-of-3 Multisig wallet derived from Parity's multisig wallet.
 
-PreRelease, Alpha, and Beta would be selfdestruct-ed after launch or when empty of ETH. 
-Please send all created tokens back to the contract to withdraw your ETH.
+Code audit is still in the works. Code Coverage will be uploaded soon. 
 
-PreRelease address: 0x49B1a3a88263a718990DaC7F1DBdBc89fAdC17D0
-Alpha      address: 0x...
-Beta       address: 0x...
+Alpha Crowdsale Address: 0x62BE254589217A9213ec8a1c8067cfcD17919a04
+
+To watch the token:
+
+Alpha Token     Address: 0x7f16c0D111f993ebCCEa9DeF57412b52895bF7f7
+
+Beta Addresses to be released on 26/May/2017.
+Final addresses to be reeased on 2/June/2017. 
