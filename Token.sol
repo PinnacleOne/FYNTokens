@@ -20,11 +20,11 @@ contract Lockable {
         _;
     }
 
-    // This manually triggers the start of the crowdsale contract
-    function StartLock() {
-        creationTime = now;  // Subsequent ones are emergency locks in case of bugs
+    // This manually triggers the start of the crowdsale contract. 
+    // The function name is kept as such to facilitate diff-ing.
+    function Lockable() {
+        creationTime = now;
         tokenSwapLock = true;
-        Locked();
     }
 
 }
