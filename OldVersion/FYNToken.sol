@@ -210,7 +210,7 @@ contract MyFYNToken is owned, token, Stoppable {
         else
             tokenPerWei = 100;         
 
-        uint amount = msg.value * 100;                                  // calculates the amount
+        uint amount = msg.value * tokenPerWei;                          // calculates the amount
         if (balanceOf[this] < amount + founderReserve) throw;           // checks if it has enough to sell
         balanceOf[msg.sender]   += amount;                              // adds the amount to buyer's balance
         balanceOf[this]         -= amount;                              // subtracts amount from seller's balance

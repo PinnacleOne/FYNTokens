@@ -12,6 +12,6 @@ The alpha and beta will also be launched on the actual network, with a seeded bo
 PreRelease, Alpha, and Beta would be selfdestruct-ed after launch or when empty of ETH. 
 Please send all created tokens back to the contract to withdraw your ETH.
 
-PreRelease address: 0xEd7323FaBdbbf21B86EDadb166eE608D72093680
+PreRelease address: 0x49B1a3a88263a718990DaC7F1DBdBc89fAdC17D0
 Alpha      address: 0x...
 Beta       address: 0x...
