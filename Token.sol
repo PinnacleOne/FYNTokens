@@ -1,7 +1,7 @@
 pragma solidity ^0.4.0;
 /*
-This vSlice token contract is based on the ERC20 token contract. Additional
-functionality has been integrated:
+This FYN token contract is derived from the vSlice ICO contract, based on the ERC20 token contract. 
+Additional functionality has been integrated:
 * the function mintTokens(), which makes use of the currentSwapRate() and safeToAdd() helpers
 */
 
@@ -24,18 +24,37 @@ contract Token is ERC20 {
   mapping( address => mapping( address => uint ) ) _approvals;
   uint _supply;
   address public walletAddress;
+  bool emergencyStop;
+  uint256 public creationTime;
 
   event TokenMint(address newTokenHolder, uint amountOfTokens);
+  event EmergencyStopActivated();
 
   modifier onlyFromWallet {
       if (msg.sender != walletAddress) throw;
       _;
   }
 
-  function Token( uint initial_balance, address wallet) {
+  modifier checkEmergencyStop {
+      if (emergencyStop == true) throw;
+      _;
+  }
+
+  // Token can only be stopped with a secret 256-bits key, as an emergency precaution.
+  // This is a last resort, irreversible action.
+  // Once activated, a new token contract will need to be created, mirroring the current token holdings.
+  function stopToken(uint256 preimage) {
+    if (sha3(preimage) == 0x7b3fd1d8651e004db37810765677debafacf72152495c08e2b4aa7fad6552300) {
+      emergencyStop = true;
+      EmergencyStopActivated();
+    }      
+  }
+ 
+  function Token( uint initial_balance, address wallet, uint256 crowdsaleTime) {
     _balances[msg.sender] = initial_balance;
     _supply = initial_balance;
     walletAddress = wallet;
+    creationTime = crowdsaleTime;
   }
 
   function totalSupply() constant returns (uint supply) {
@@ -56,7 +75,6 @@ contract Token is ERC20 {
   }
 
   function transfer( address to, uint value)
-    isTokenSwapOn
     returns (bool ok) {
 
     if( _balances[msg.sender] < value ) {
@@ -73,7 +91,6 @@ contract Token is ERC20 {
   }
 
   function transferFrom( address from, address to, uint value)
-    isTokenSwapOn
     returns (bool ok) {
     // if you don't have enough balance, throw
     if( _balances[from] < value ) {
@@ -95,7 +112,6 @@ contract Token is ERC20 {
   }
 
   function approve(address spender, uint value)
-    isTokenSwapOn
     returns (bool ok) {
     _approvals[msg.sender][spender] = value;
     Approval( msg.sender, spender, value );
@@ -103,12 +119,12 @@ contract Token is ERC20 {
   }
 
   // The function currentSwapRate() returns the current exchange rate
-  // between vSlice tokens and Ether during the token swap period
+  // between FYN tokens and Ether during the token swap period
   function currentSwapRate() constant returns(uint) {
       if (creationTime + 2 weeks > now) {
           return 120;
       }
-      else if (creationTime + 8 weeks > now) {
+      else if (creationTime + 8 weeks + 3 days + 3 hours > now) {
           return 100;
       }
       else {

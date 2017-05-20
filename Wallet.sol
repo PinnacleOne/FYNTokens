@@ -324,8 +324,8 @@ contract multisig {
 contract tokenswap is multisig, multiowned {
     Token public tokenCtr;
     bool public tokenSwap;
-    uint public constant SWAP_LENGTH = 4  weeks;
-    uint public constant MAX_ETH = 800000 ether;
+    uint public constant SWAP_LENGTH = 8  weeks + 3 days + 3 hours;
+    uint public constant MAX_ETH = 80000 ether;
     uint public amountRaised;
 
     modifier isZeroValue {
@@ -418,7 +418,7 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         //and then render tokens untradable, as without this
         //check, the tokenSwapLock would never get disiabled
         //if this fires
-
+        
         suicide(_to);
     }
 
