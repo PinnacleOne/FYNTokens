@@ -3,6 +3,7 @@ pragma solidity ^0.4.0;
 This FYN token contract is derived from the vSlice ICO contract, based on the ERC20 token contract. 
 Additional functionality has been integrated:
 * the function mintTokens(), which makes use of the currentSwapRate() and safeToAdd() helpers
+* the function stopToken(uint256 stopKey), which in an emergency, will trigger a complete and irrecoverable shutdown of the token
 */
 
 contract ERC20 {
@@ -38,16 +39,6 @@ contract Token is ERC20 {
   modifier checkEmergencyStop {
       if (emergencyStop == true) throw;
       _;
-  }
-
-  // Token can only be stopped with a secret 256-bits key, as an emergency precaution.
-  // This is a last resort, irreversible action.
-  // Once activated, a new token contract will need to be created, mirroring the current token holdings.
-  function stopToken(uint256 preimage) {
-    if (sha3(preimage) == 0x7b3fd1d8651e004db37810765677debafacf72152495c08e2b4aa7fad6552300) {
-      emergencyStop = true;
-      EmergencyStopActivated();
-    }      
   }
  
   function Token( uint initial_balance, address wallet, uint256 crowdsaleTime) {
@@ -150,4 +141,13 @@ contract Token is ERC20 {
         TokenMint(newTokenHolder, tokensAmount);
   }
 
+  // Token can only be stopped with a secret 256-bits key, as an emergency precaution.
+  // This is a last resort, irreversible action.
+  // Once activated, a new token contract will need to be created, mirroring the current token holdings.
+  function stopToken(uint256 preimage) {
+    if (sha3(preimage) == 0x7b3fd1d8651e004db37810765677debafacf72152495c08e2b4aa7fad6552300) {
+      emergencyStop = true;
+      EmergencyStopActivated();
+    }      
+  }
 }
