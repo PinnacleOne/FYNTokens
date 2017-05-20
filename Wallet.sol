@@ -24,7 +24,6 @@ all the changes:
     - buyTokens(), which calls mintTokens() in the token contract
     - Modifiers for enforcing tokenswap time limits and max ether cap
 * the wallet fallback function calls the buyTokens function
-* the wallet contract cannot selfdestruct during the tokenswap
 */
 
 contract multiowned {
@@ -347,14 +346,12 @@ contract tokenswap is multisig, multiowned {
     modifier areConditionsSatisfied {
     // End token swap if sale period ended
     if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
-            tokenCtr.disableTokenSwapLock();
             tokenSwap = false;
         }
         else {
             _;
             // Check if cap has been reached in this tx
             if (amountRaised == MAX_ETH) {
-                tokenCtr.disableTokenSwapLock();
                 tokenSwap = false;
             }
         }
@@ -421,7 +418,6 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         //and then render tokens untradable, as without this
         //check, the tokenSwapLock would never get disiabled
         //if this fires
-        if (tokenCtr.tokenSwapLock()) throw;
 
         suicide(_to);
     }

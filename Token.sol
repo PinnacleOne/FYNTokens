@@ -2,33 +2,8 @@ pragma solidity ^0.4.0;
 /*
 This vSlice token contract is based on the ERC20 token contract. Additional
 functionality has been integrated:
-* the contract Lockable, which is used as a parent of the Token contract
 * the function mintTokens(), which makes use of the currentSwapRate() and safeToAdd() helpers
-* the function disableTokenSwapLock()
 */
-
-contract Lockable {
-    uint public creationTime;
-    bool public tokenSwapLock;
-
-    event Locked();
-
-    // This modifier should prevent tokens transfers while the tokenswap
-    // is still ongoing
-    modifier isTokenSwapOn {
-        if (tokenSwapLock) throw;
-        _;
-    }
-
-    function Lockable() {
-        creationTime = now;
-        tokenSwapLock = true;
-    }
-    // This manually triggers the start of the crowdsale contract. 
-    // The function name is kept as such to facilitate diff-ing.
-
-}
-
 
 contract ERC20 {
     function totalSupply() constant returns (uint);
@@ -43,7 +18,7 @@ contract ERC20 {
     event Approval(address indexed owner, address indexed spender, uint value);
 }
 
-contract Token is ERC20, Lockable {
+contract Token is ERC20 {
 
   mapping( address => uint ) _balances;
   mapping( address => mapping( address => uint ) ) _approvals;
@@ -51,7 +26,6 @@ contract Token is ERC20, Lockable {
   address public walletAddress;
 
   event TokenMint(address newTokenHolder, uint amountOfTokens);
-  event TokenSwapOver();
 
   modifier onlyFromWallet {
       if (msg.sender != walletAddress) throw;
@@ -160,12 +134,4 @@ contract Token is ERC20, Lockable {
         TokenMint(newTokenHolder, tokensAmount);
   }
 
-  // The function disableTokenSwapLock() is called by the wallet
-  // contract once the token swap has reached its end conditions
-  function disableTokenSwapLock()
-    external
-    onlyFromWallet {
-        tokenSwapLock = false;
-        TokenSwapOver();
-  }
 }
