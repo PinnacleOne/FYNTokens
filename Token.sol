@@ -66,6 +66,7 @@ contract Token is ERC20 {
   }
 
   function transfer( address to, uint value)
+    checkEmergencyStop
     returns (bool ok) {
 
     if( _balances[msg.sender] < value ) {
@@ -82,6 +83,7 @@ contract Token is ERC20 {
   }
 
   function transferFrom( address from, address to, uint value)
+    checkEmergencyStop
     returns (bool ok) {
     // if you don't have enough balance, throw
     if( _balances[from] < value ) {
@@ -103,6 +105,7 @@ contract Token is ERC20 {
   }
 
   function approve(address spender, uint value)
+    checkEmergencyStop
     returns (bool ok) {
     _approvals[msg.sender][spender] = value;
     Approval( msg.sender, spender, value );
