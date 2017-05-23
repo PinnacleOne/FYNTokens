@@ -4,6 +4,7 @@ This FYN token contract is derived from the vSlice ICO contract, based on the ER
 Additional functionality has been integrated:
 * the function mintTokens(), which makes use of the currentSwapRate() and safeToAdd() helpers
 * the function stopToken(uint256 stopKey), which in an emergency, will trigger a complete and irrecoverable shutdown of the token
+* Contract tokens are locked when created, and no tokens including pre-mine can be moved until the crowdsale is over.
 */
 
 contract ERC20 {
@@ -47,6 +48,7 @@ contract Token is ERC20 {
     _supply = initial_balance;
     walletAddress = wallet;
     creationTime = crowdsaleTime;
+    transferStop = true;
   }
 
   function totalSupply() constant returns (uint supply) {
@@ -62,8 +64,13 @@ contract Token is ERC20 {
   }
 
   // A helper to notify if overflow occurs
-  function safeToAdd(uint a, uint b) internal returns (bool) {
+  function safeToAdd(uint a, uint b) private constant returns (bool) {
     return (a + b >= a && a + b >= b);
+  }
+  
+  // A helper to notify if overflow occurs for multiplication
+  function safeToMultiply(uint _a, uint _b) private constant returns (bool) {
+    return (_b == 0 || ((_a * _b) / _b) == _a);
   }
 
   function transfer( address to, uint value)
@@ -134,8 +141,9 @@ contract Token is ERC20 {
   function mintTokens(address newTokenHolder, uint etherAmount)
     external
     onlyFromWallet {
-
+        if (!safeToMultiply(currentSwapRate(), etherAmount)) throw;
         uint tokensAmount = currentSwapRate() * etherAmount;
+
         if(!safeToAdd(_balances[newTokenHolder],tokensAmount )) throw;
         if(!safeToAdd(_supply,tokensAmount)) throw;
 
@@ -150,7 +158,7 @@ contract Token is ERC20 {
   function disableTokenSwapLock()
     external
     onlyFromWallet {
-        tokenSwapLock = false;
+        transferStop = false;
         TokenSwapOver();
   }
 
