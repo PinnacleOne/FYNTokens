@@ -24,6 +24,7 @@ all the changes:
     - buyTokens(), which calls mintTokens() in the token contract
     - Modifiers for enforcing tokenswap time limits and max ether cap
 * the wallet fallback function calls the buyTokens function
+* the wallet contract cannot selfdestruct during the tokenswap
 */
 
 contract multiowned {
