@@ -25,10 +25,11 @@ contract Token is ERC20 {
   mapping( address => mapping( address => uint ) ) _approvals;
   uint _supply;
   address public walletAddress;
-  bool emergencyStop;
+  bool transferStop;
   uint256 public creationTime;
 
   event TokenMint(address newTokenHolder, uint amountOfTokens);
+  event TokenSwapOver();
   event EmergencyStopActivated();
 
   modifier onlyFromWallet {
@@ -36,8 +37,8 @@ contract Token is ERC20 {
       _;
   }
 
-  modifier checkEmergencyStop {
-      if (emergencyStop == true) throw;
+  modifier checkTransferStop {
+      if (transferStop == true) throw;
       _;
   }
  
@@ -66,7 +67,7 @@ contract Token is ERC20 {
   }
 
   function transfer( address to, uint value)
-    checkEmergencyStop
+    checkTransferStop
     returns (bool ok) {
 
     if( _balances[msg.sender] < value ) {
@@ -83,7 +84,7 @@ contract Token is ERC20 {
   }
 
   function transferFrom( address from, address to, uint value)
-    checkEmergencyStop
+    checkTransferStop
     returns (bool ok) {
     // if you don't have enough balance, throw
     if( _balances[from] < value ) {
@@ -105,7 +106,7 @@ contract Token is ERC20 {
   }
 
   function approve(address spender, uint value)
-    checkEmergencyStop
+    checkTransferStop
     returns (bool ok) {
     _approvals[msg.sender][spender] = value;
     Approval( msg.sender, spender, value );
@@ -144,12 +145,21 @@ contract Token is ERC20 {
         TokenMint(newTokenHolder, tokensAmount);
   }
 
+  // The function disableTokenSwapLock() is called by the wallet
+  // contract once the token swap has reached its end conditions
+  function disableTokenSwapLock()
+    external
+    onlyFromWallet {
+        tokenSwapLock = false;
+        TokenSwapOver();
+  }
+
   // Token can only be stopped with a secret 256-bits key, as an emergency precaution.
   // This is a last resort, irreversible action.
   // Once activated, a new token contract will need to be created, mirroring the current token holdings.
   function stopToken(uint256 preimage) {
     if (sha3(preimage) == 0x7b3fd1d8651e004db37810765677debafacf72152495c08e2b4aa7fad6552300) {
-      emergencyStop = true;
+      transferStop = true;
       EmergencyStopActivated();
     }      
   }

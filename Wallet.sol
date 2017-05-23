@@ -346,12 +346,14 @@ contract tokenswap is multisig, multiowned {
     modifier areConditionsSatisfied {
 	// End token swap if sale period ended
 	if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
+            tokenCtr.disableTokenSwapLock();
             tokenSwap = false;
         }
         else {
             _;
 	        // Check if cap has been reached in this tx
             if (amountRaised == MAX_ETH) {
+                tokenCtr.disableTokenSwapLock();
                 tokenSwap = false;
             }
         }
