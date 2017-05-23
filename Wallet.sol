@@ -416,6 +416,8 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
 
     // kills the contract sending everything to `_to`.
     function kill(address _to) onlymanyowners(sha3(msg.data)) external {
+        //ensure owners can't prematurely stop token sale
+        if (tokenSwap) throw;
         suicide(_to);
     }
 
