@@ -281,9 +281,6 @@ contract daylimit is multiowned {
             m_spentToday = 0;
             m_lastDay = today();
         }
-        // check if it's sending nothing but data: still eats gas in a situation of malicious owner(s)
-        if (_value == 0) return false;
-
         // check to see if there's enough left - if so, subtract and return true.
         // overflow protection                    // dailyLimit check
         if (m_spentToday + _value >= m_spentToday && m_spentToday + _value <= m_dailyLimit) {
@@ -464,7 +461,7 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         if (m_txs[_h].to != 0) {
             if (m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))   // Bugfix: If successful, MultiTransact event should fire
             MultiTransact(msg.sender, _h, m_txs[_h].value, m_txs[_h].to, m_txs[_h].data);
-            delete m_txs[_h];                                                                    
+            delete m_txs[_h]; 
             return true;
         }
     }
