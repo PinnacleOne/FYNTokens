@@ -38,10 +38,24 @@ contract Token is ERC20 {
       _;
   }
 
+  
+  // Check if transfer should stop
   modifier checkTransferStop {
       if (transferStop == true) throw;
       _;
   }
+ 
+  /**
+   *
+   * Fix for the ERC20 short address attack
+   *
+   * http://vessenes.com/the-erc20-short-address-attack-explained/
+   */
+
+  modifier onlyPayloadSize(uint size) {
+     if !(msg.data.length == size + 4) throw;
+     _;
+   } 
  
   function Token( uint initial_balance, address wallet, uint256 crowdsaleTime) {
     _balances[msg.sender] = initial_balance;
@@ -75,6 +89,7 @@ contract Token is ERC20 {
 
   function transfer( address to, uint value)
     checkTransferStop
+    onlyPayloadSize(2 * 32)
     returns (bool ok) {
 
     if( _balances[msg.sender] < value ) {
@@ -115,6 +130,22 @@ contract Token is ERC20 {
   function approve(address spender, uint value)
     checkTransferStop
     returns (bool ok) {
+
+    // To change the approve amount you first have to reduce the addresses`
+    //  allowance to zero by calling `approve(_spender,0)` if it is not
+    //  already 0 to mitigate the race condition described here:
+    //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    //
+    // Note that this doesn't prevent attacks; the user will have to personally
+    //  check to ensure that the token count has not changed, before issuing
+    //  a new approval. Increment/decrement is not commonly spec-ed, and 
+    //  changing to a check-my-approvals-before-changing would require user
+    //  to find out his current approval for spender and change expected
+    //  behaviour for ERC20.
+
+
+    if ((value!=0) && (_approvals[msg.sender][spender] !=0)) throw;
+
     _approvals[msg.sender][spender] = value;
     Approval( msg.sender, spender, value );
     return true;
@@ -123,7 +154,7 @@ contract Token is ERC20 {
   // The function currentSwapRate() returns the current exchange rate
   // between FYN tokens and Ether during the token swap period
   function currentSwapRate() constant returns(uint) {
-      if (creationTime + 2 weeks > now) {
+      if (creationTime + 4 weeks > now) {
           return 120;
       }
       else if (creationTime + 8 weeks + 3 days + 3 hours > now) {
