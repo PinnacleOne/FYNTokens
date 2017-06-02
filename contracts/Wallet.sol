@@ -11,7 +11,7 @@
 
 import "./Token.sol";
 
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.11;
 
 /*
 The standard Wallet contract, retrievable at

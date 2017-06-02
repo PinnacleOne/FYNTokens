@@ -1,4 +1,4 @@
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.11;
 /*
 This FYN token contract is derived from the vSlice ICO contract, based on the ERC20 token contract. 
 Additional functionality has been integrated:
