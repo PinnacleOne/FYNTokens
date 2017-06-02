@@ -28,6 +28,9 @@ contract Token is ERC20 {
   address public walletAddress;
   bool transferStop;
   uint256 public creationTime;
+  string public constant name = "FundYourselNow Token";
+  string public constant symbol = "FYN";
+  uint8 public constant decimals = 18;  // 18 is the most common number of decimal places
 
   event TokenMint(address newTokenHolder, uint amountOfTokens);
   event TokenSwapOver();
