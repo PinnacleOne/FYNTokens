@@ -53,7 +53,7 @@ contract Token is ERC20 {
    */
 
   modifier onlyPayloadSize(uint size) {
-     if !(msg.data.length == size + 4) throw;
+     if (!(msg.data.length == size + 4)) throw;
      _;
    } 
  
