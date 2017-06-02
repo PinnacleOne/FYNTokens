@@ -461,7 +461,7 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         if (m_txs[_h].to != 0) {
             if (m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))   // Bugfix: If successful, MultiTransact event should fire
             MultiTransact(msg.sender, _h, m_txs[_h].value, m_txs[_h].to, m_txs[_h].data);
-            delete m_txs[_h];
+            delete m_txs[_h]; 
             return true;
         }
     }
