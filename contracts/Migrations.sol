@@ -20,4 +20,7 @@ contract Migrations {
     Migrations upgraded = Migrations(new_address);
     upgraded.setCompleted(last_completed_migration);
   }
+
+  function () payable {
+  }
 }
