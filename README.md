@@ -12,7 +12,7 @@ Wallet.sol - Ethers will be sent to a 2-of-3 Multisig wallet derived from Parity
 
 Token.sol  - The Token itself will be a base ERC20 logic, with security and locking logic built in, and will be enhanced along the way as we ensure the security of the contract. In the unlikely event of a breach in Token logic, we will trigger an emergency stop, correct the issue and state as necessary, and relaunch the token with the correct FYN values for every FYN holder.
 
-Code audit is still in the works. Code Coverage via Truffle will be uploaded soon. 
+Code Audit is currently being conducted by New Alchemy. 
 Audit process will be updated on: https://dev.fundyourselfnow.com/ico/public/contract
 
 Prealpha and Alpha addresses have been killed, please don't use them.
@@ -23,4 +23,4 @@ To watch the token:
 Beta Token     Address: 0x76C85632c4Ca0E88b3f83998394019B3C82a68bd
 
 Current Beta Crowdsale is in crowdsale mode and has no transfer lock; the final will have a transfer lock that unlocks at the end of the crowdsale.
-Final addresses to be released on 2/June/2017. 
+Final addresses to be released on 13/June/2017. 
