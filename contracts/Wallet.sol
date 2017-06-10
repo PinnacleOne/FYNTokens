@@ -22,7 +22,8 @@ all the changes:
     - Functions for starting and stopping the tokenswap
     - A set-only-once function for the token contract
     - buyTokens(), which calls mintTokens() in the token contract
-    - Modifiers for enforcing tokenswap time limits and max ether cap
+    - Modifiers for enforcing tokenswap time limits, max ether cap, and max token cap
+    - withdrawEther(), for withdrawing unsold tokens after time cap
 * the wallet fallback function calls the buyTokens function
 * the wallet contract cannot selfdestruct during the tokenswap
 */
@@ -328,9 +329,17 @@ contract multisig {
 contract tokenswap is multisig, multiowned {
     Token public tokenCtr;
     bool public tokenSwap;
-    uint public constant SWAP_LENGTH = 8 weeks + 3 days + 3 hours;
-    uint public constant MAX_ETH = 80000 ether;
+    uint public constant PRESALE_LENGTH = 3 days;
+    uint public constant SWAP_LENGTH = PRESALE_LENGTH + 6 weeks + 6 days + 3 hours;
+    uint public constant MAX_ETH = 75000 ether; // Hard cap, capped otherwise by total tokens sold (max 7.5M FYN)
     uint public amountRaised;
+
+    modifier isUnderPresaleMinimum {
+        if (tokenCtr.creationTime() + PRESALE_LENGTH > now) {
+            if (msg.value < 20 ether) throw;
+        }
+        _;
+    }
 
     modifier isZeroValue {
         if (msg.value == 0) throw;
@@ -338,8 +347,17 @@ contract tokenswap is multisig, multiowned {
     }
 
     modifier isOverCap {
-	if (amountRaised + msg.value > MAX_ETH) throw;
+    	if (amountRaised + msg.value > MAX_ETH) throw;
         _;
+    }
+
+    modifier isOverTokenCap {
+        if (!safeToMultiply(tokenCtr.currentSwapRate(), msg.value)) throw;
+        uint tokensAmount = tokenCtr.currentSwapRate() * msg.value;
+        if(!safeToAdd(tokenCtr.totalSupply(),tokensAmount)) throw;
+        if (tokenCtr.totalSupply() + tokensAmount > tokenCtr.tokenCap()) throw;
+        _;
+
     }
 
     modifier isSwapStopped {
@@ -348,24 +366,37 @@ contract tokenswap is multisig, multiowned {
     }
 
     modifier areConditionsSatisfied {
-	// End token swap if sale period ended
-	if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
+        _;
+        // End token swap if sale period ended
+        // We can't throw to reverse the amount sent in or we will lose state
+        // , so we will accept it even though if it is after crowdsale
+        if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
             tokenCtr.disableTokenSwapLock();
             tokenSwap = false;
         }
-        else {
-            _;
-	        // Check if cap has been reached in this tx
-            if (amountRaised == MAX_ETH) {
-                tokenCtr.disableTokenSwapLock();
-                tokenSwap = false;
-            }
+        // Check if cap has been reached in this tx
+        if (amountRaised == MAX_ETH) {
+            tokenCtr.disableTokenSwapLock();
+            tokenSwap = false;
+        }
+
+        // Check if token cap has been reach in this tx
+        if (tokenCtr.totalSupply() == tokenCtr.tokenCap()) {
+            tokenCtr.disableTokenSwapLock();
+            tokenSwap = false;
         }
     }
 
-    function safeToAdd(uint a, uint b) internal returns (bool) {
+    // A helper to notify if overflow occurs for addition
+    function safeToAdd(uint a, uint b) private constant returns (bool) {
       return (a + b >= a && a + b >= b);
     }
+  
+    // A helper to notify if overflow occurs for multiplication
+    function safeToMultiply(uint _a, uint _b) private constant returns (bool) {
+      return (_b == 0 || ((_a * _b) / _b) == _a);
+    }
+
 
     function startTokenSwap() onlyowner {
         tokenSwap = true;
@@ -385,8 +416,10 @@ contract tokenswap is multisig, multiowned {
 
     function buyTokens(address _beneficiary)
     payable
+    isUnderPresaleMinimum
     isZeroValue
     isOverCap
+    isOverTokenCap
     isSwapStopped
     areConditionsSatisfied {
         Deposit(msg.sender, msg.value);
@@ -394,6 +427,12 @@ contract tokenswap is multisig, multiowned {
         if (!safeToAdd(amountRaised, msg.value)) throw;
         amountRaised += msg.value;
     }
+
+    function withdrawReserve(address _beneficiary) onlyowner {
+	    if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
+            tokenCtr.mintReserve(_beneficiary);
+        }
+    } 
 }
 
 // usage:
@@ -420,9 +459,17 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
 
     // kills the contract sending everything to `_to`.
     function kill(address _to) onlymanyowners(sha3(msg.data)) external {
-        //ensure owners can't prematurely stop token sale
+        // ensure owners can't prematurely stop token sale
         if (tokenSwap) throw;
+        // ensure owners can't kill wallet without stopping token
+        //  otherwise token can never be stopped
+        if (tokenCtr.transferStop() == false) throw;
         suicide(_to);
+    }
+
+    // Activates Emergency Stop for Token
+    function stopToken() onlymanyowners(sha3(msg.data)) external {
+       tokenCtr.stopToken();
     }
 
     // gets called when no other function matches

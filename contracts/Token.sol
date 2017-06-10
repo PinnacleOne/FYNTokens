@@ -2,11 +2,15 @@ pragma solidity ^0.4.11;
 /*
 This FYN token contract is derived from the vSlice ICO contract, based on the ERC20 token contract. 
 Additional functionality has been integrated:
-* the function mintTokens(), which makes use of the currentSwapRate() and safeToAdd() helpers
-* the function stopToken(uint256 stopKey), which in an emergency, will trigger a complete and irrecoverable shutdown of the token
+* the function mintTokens() only callable from wallet, which makes use of the currentSwapRate() and safeToAdd() helpers
+* the function mintReserve() only callable from wallet, which at the end of the crowdsale will allow the owners to claim the unsold tokens
+* the function stopToken() only callable from wallet, which in an emergency, will trigger a complete and irrecoverable shutdown of the token
 * Contract tokens are locked when created, and no tokens including pre-mine can be moved until the crowdsale is over.
 */
 
+
+// ERC20 Token Standard Interface
+// https://github.com/ethereum/EIPs/issues/20
 contract ERC20 {
     function totalSupply() constant returns (uint);
     function balanceOf(address who) constant returns (uint);
@@ -22,15 +26,18 @@ contract ERC20 {
 
 contract Token is ERC20 {
 
+  string public constant name = "FundYourselfNow Token";
+  string public constant symbol = "FYN";
+  uint8 public constant decimals = 18;  // 18 is the most common number of decimal places
+  uint256 public tokenCap = 12500000e18; // 12.5 million FYN cap 
+
+  address public walletAddress;
+  uint256 public creationTime;
+  bool public transferStop;
+ 
   mapping( address => uint ) _balances;
   mapping( address => mapping( address => uint ) ) _approvals;
   uint _supply;
-  address public walletAddress;
-  bool transferStop;
-  uint256 public creationTime;
-  string public constant name = "FundYourselNow Token";
-  string public constant symbol = "FYN";
-  uint8 public constant decimals = 18;  // 18 is the most common number of decimal places
 
   event TokenMint(address newTokenHolder, uint amountOfTokens);
   event TokenSwapOver();
@@ -41,13 +48,13 @@ contract Token is ERC20 {
       _;
   }
 
-  
   // Check if transfer should stop
   modifier checkTransferStop {
       if (transferStop == true) throw;
       _;
   }
  
+
   /**
    *
    * Fix for the ERC20 short address attack
@@ -90,11 +97,18 @@ contract Token is ERC20 {
     return (_b == 0 || ((_a * _b) / _b) == _a);
   }
 
+  // A helper to notify if underflow occurs for subtraction
+  function safeToSub(uint a, uint b) private constant returns (bool) {
+    return (a >= b);
+  }
+
+
   function transfer( address to, uint value)
     checkTransferStop
     onlyPayloadSize(2 * 32)
     returns (bool ok) {
 
+    if (to == walletAddress) throw; // Reject transfers to wallet (wallet cannot interact with token contract)
     if( _balances[msg.sender] < value ) {
         throw;
     }
@@ -111,6 +125,9 @@ contract Token is ERC20 {
   function transferFrom( address from, address to, uint value)
     checkTransferStop
     returns (bool ok) {
+
+    if (to == walletAddress) throw; // Reject transfers to wallet (wallet cannot interact with token contract)
+
     // if you don't have enough balance, throw
     if( _balances[from] < value ) {
         throw;
@@ -157,10 +174,17 @@ contract Token is ERC20 {
   // The function currentSwapRate() returns the current exchange rate
   // between FYN tokens and Ether during the token swap period
   function currentSwapRate() constant returns(uint) {
-      if (creationTime + 4 weeks > now) {
+      uint presalePeriod = 3 days;
+      if (creationTime + presalePeriod > now) {
+          return 140;
+      }
+      else if (creationTime + presalePeriod + 3 weeks > now) {
           return 120;
       }
-      else if (creationTime + 8 weeks + 3 days + 3 hours > now) {
+      else if (creationTime + presalePeriod + 6 weeks + 6 days + 3 hours + 1 days > now) { 
+          // 1 day buffer to allow one final transaction from anyone to close everything
+          // otherwise wallet will receive ether but send 0 tokens
+          // we cannot throw as we will lose the state change to start swappability of tokens 
           return 100;
       }
       else {
@@ -181,10 +205,28 @@ contract Token is ERC20 {
         if(!safeToAdd(_balances[newTokenHolder],tokensAmount )) throw;
         if(!safeToAdd(_supply,tokensAmount)) throw;
 
+        if ((_supply + tokensAmount) > tokenCap) throw;
+
         _balances[newTokenHolder] += tokensAmount;
         _supply += tokensAmount;
 
         TokenMint(newTokenHolder, tokensAmount);
+  }
+
+  function mintReserve(address beneficiary) 
+    external
+    onlyFromWallet {
+        if (tokenCap <= _supply) throw;
+        if(!safeToSub(tokenCap,_supply)) throw;
+        uint tokensAmount = tokenCap - _supply;
+
+        if(!safeToAdd(_balances[beneficiary], tokensAmount )) throw;
+        if(!safeToAdd(_supply,tokensAmount)) throw;
+
+        _balances[beneficiary] += tokensAmount;
+        _supply += tokensAmount;
+        
+        TokenMint(beneficiary, tokensAmount);
   }
 
   // The function disableTokenSwapLock() is called by the wallet
@@ -196,13 +238,9 @@ contract Token is ERC20 {
         TokenSwapOver();
   }
 
-  // Token can only be stopped with a secret 256-bits key, as an emergency precaution.
-  // This is a last resort, irreversible action.
-  // Once activated, a new token contract will need to be created, mirroring the current token holdings.
-  function stopToken(uint256 preimage) {
-    if (sha3(preimage) == 0x7b3fd1d8651e004db37810765677debafacf72152495c08e2b4aa7fad6552300) {
-      transferStop = true;
-      EmergencyStopActivated();
-    }      
+  // Once activated, a new token contract will need to be created, mirroring the current token holdings. 
+  function stopToken() onlyFromWallet {
+    transferStop = true;
+    EmergencyStopActivated();
   }
 }
