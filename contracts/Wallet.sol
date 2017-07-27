@@ -620,23 +620,37 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         buyTokens(msg.sender);
     }
 
+    // function to transfer to any owner,
+    // according to the milestone strategy.
+    // Can only be called by the owner.
+    function withdrawForOwner (address _addr, uint _value, bytes _data)
+    onlyowner
+    onlyWhiteListed (_addr)
+    isUnderMilestoneLimit (_value) {
+        recordTransaction(_value);
+        execute(_addr, _value, _data);
+    }
+
     // Outside-visible transact entry point. Executes transaction immediately if below daily spend limit.
     // If not, goes into multisig process. We provide a hash on return to allow the sender to provide
     // shortcuts for the other confirmations (allowing them to avoid replicating the _to, _value
     // and _data arguments). They still get the option of using them if they want, anyways.
-    function execute(address _to, uint _value, bytes _data) external onlyowner returns (bytes32 _r) {
+
+
+    function execute(address _to, uint _value, bytes _data) internal
+    returns (bytes32 _r) {
         // Disallow the wallet contract from calling token contract once it's set
         // so tokens can't be minted arbitrarily once the sale starts.
         // Tokens can be minted for premine before the sale opens and tokenCtr is set.
-        if (_to == address(tokenCtr)) throw;
+        require (_to != address(tokenCtr));
 
         // first, take the opportunity to check that we're under the daily limit.
-        if (underLimit(_value)) {
-            SingleTransact(msg.sender, _value, _to, _data);
-            // yes - just execute the call.
-            if(!_to.call.value(_value)(_data))
-            return 0;
-        }
+
+        SingleTransact(msg.sender, _value, _to, _data);
+        // yes - just execute the call.
+        if(!_to.call.value(_value)(_data))
+        return 0;
+
 
         // determine our operation hash.
         _r = sha3(msg.data, block.number);
@@ -647,7 +661,7 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
             ConfirmationNeeded(_r, msg.sender, _value, _to, _data);
         }
     }
-
+    
     // confirm a transaction through just the hash. we use the previous transactions map, m_txs, in order
     // to determine the body of the transaction from the hash provided.
     function confirm(bytes32 _h) onlymanyowners(_h) returns (bool) {
