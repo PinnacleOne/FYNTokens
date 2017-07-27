@@ -10,6 +10,8 @@
 // interior is executed.
 
 import "./Token.sol";
+import "./SecureMath.sol";
+
 
 pragma solidity ^0.4.11;
 
@@ -325,7 +327,7 @@ contract multisig {
     function confirm(bytes32 _h) returns (bool);
 }
 
-contract tokenswap is multisig, multiowned {
+contract tokenswap is secureMath, multisig, multiowned {
     Token public tokenCtr;
     bool public tokenSwap;
     uint public constant PRESALE_LENGTH = 3 days;
@@ -386,17 +388,6 @@ contract tokenswap is multisig, multiowned {
         }
     }
 
-    // A helper to notify if overflow occurs for addition
-    function safeToAdd(uint a, uint b) private constant returns (bool) {
-      return (a + b >= a && a + b >= b);
-    }
-
-    // A helper to notify if overflow occurs for multiplication
-    function safeToMultiply(uint _a, uint _b) private constant returns (bool) {
-      return (_b == 0 || ((_a * _b) / _b) == _a);
-    }
-
-
     function startTokenSwap() onlyowner {
         tokenSwap = true;
     }
@@ -434,7 +425,7 @@ contract tokenswap is multisig, multiowned {
     }
 }
 
-contract amountWithdrawalStrategy is daylimit, tokenswap {
+contract amountWithdrawalStrategy is secureMath, daylimit, tokenswap {
 
     uint[256] fynAccounts;
     mapping (uint => uint) fynAccountIndex;
@@ -661,7 +652,7 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
             ConfirmationNeeded(_r, msg.sender, _value, _to, _data);
         }
     }
-    
+
     // confirm a transaction through just the hash. we use the previous transactions map, m_txs, in order
     // to determine the body of the transaction from the hash provided.
     function confirm(bytes32 _h) onlymanyowners(_h) returns (bool) {
