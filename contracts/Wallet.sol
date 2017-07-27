@@ -339,6 +339,10 @@ contract tokenswap is secureMath, multisig, multiowned {
     // array to store the addresses of the depositors.
     uint[] depositorAccounts;
 
+    // boolean to store the status of the refund process,
+    // in control of the owners of the contract.
+    bool public refundInitiated;
+
     // to store token buyer status. Stores if the buyer has
     // bought tokens before as true or false.
     mapping (uint => bool) existingDepositor;
@@ -359,7 +363,32 @@ contract tokenswap is secureMath, multisig, multiowned {
     // to the depositor
     mapping (uint => mapping(uint => bool)) refundReceived;
 
+    // to check if the refund process has started,
+    // i.e after the owner initiates the refund process.
+    modifier refundProcessStarted {
+        require (refundInitiated);
+        _;
+    }
 
+    // to check if the Beneficiary that the depositor claims refund for
+    // is a Beneficiary.
+    modifier isBeneficiary (address _addr) {
+        require (existingBeneficiary[uint(msg.sender)][uint(_addr)]);
+        _;
+    }
+
+    // to check if the user making the refund request is a depositor.
+    modifier isDepositor {
+        require (existingDepositor[uint(msg.sender)]);
+        _;
+    }
+
+    // to check the refund has already been claimed for the particular beneficiary
+    // by the depositor.
+    modifier refundNotClaimed (address _addr) {
+        require (!refundReceived[uint(msg.sender)][uint(_addr)]);
+        _;
+    }
 
     modifier isUnderPresaleMinimum {
         if (tokenCtr.creationTime() + PRESALE_LENGTH > now) {
@@ -477,7 +506,7 @@ contract tokenswap is secureMath, multisig, multiowned {
             tokenCtr.mintReserve(_beneficiary);
         }
     }
-}
+  }
 
 contract amountWithdrawalStrategy is secureMath, daylimit, tokenswap {
 
@@ -717,6 +746,35 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
             delete m_txs[_h];
             return true;
         }
+    }
+
+    // function to start the refund process. Only accesisble by the
+    // owner.
+    function startRefundProcess () external
+    onlyowner {   
+      refundInitiated = true;
+    }
+
+    // function to change the stored values of etherAmountDeposited
+    // and amountRaised after a refund is claimed. Also clears the
+    // token balances of the msg.sender.
+    function recordRefund (address beneficiary) internal {
+      refundReceived[uint(msg.sender)][uint(beneficiary)] = true;
+      amountRaised -= etherAmountDeposited[uint(msg.sender)][uint(beneficiary)];
+      etherAmountDeposited[uint(msg.sender)][uint(beneficiary)] = 0;
+    }
+
+    // function to claim refund. Can only be called after the owner starts
+    // the refund process. Only accesisble by depositors.
+    // Calls the record refund function.
+    function claimRefund (address _addr) external
+    refundProcessStarted
+    isDepositor
+    refundNotClaimed (_addr)
+    isBeneficiary (_addr) {
+      require (safeToSub(amountRaised, etherAmountDeposited[uint(msg.sender)][uint(_addr)] ));
+      recordRefund (_addr);
+      execute (msg.sender, etherAmountDeposited[uint(msg.sender)][uint(_addr)], "");
     }
 
     // INTERNAL METHODS
