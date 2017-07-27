@@ -59,6 +59,13 @@ contract multiowned {
         if (isOwner(msg.sender))
             _;
     }
+
+    // to check if the recipient is owner
+    modifier onlyWhiteListed(address _addr) {
+        require (isOwner(_addr));
+            _;
+    }
+
     // multi-sig function modifier: the operation must have an intrinsic hash in order
     // that later attempts can be realised as the same underlying operation and
     // thus count as confirmations.
@@ -276,23 +283,15 @@ contract daylimit is multiowned {
 
     // checks to see if there is at least `_value` left from the daily limit today. if there is, subtracts it and
     // returns true. otherwise just returns false.
+    // INTERNAL METHODS
+
+    // checks to see if there is at least `_value` left from the daily limit today. if there is, subtracts it and
+    // returns true. otherwise just returns false. For test purposes, the daily limit is not set.
     function underLimit(uint _value) internal onlyowner returns (bool) {
         // reset the spend limit if we're on a different day to last time.
-        if (today() > m_lastDay) {
-            m_spentToday = 0;
-            m_lastDay = today();
-        }
-        // check if it's sending nothing (with or without data). This needs Multitransact
-        if (_value == 0) return false;
-
-        // check to see if there's enough left - if so, subtract and return true.
-        // overflow protection                    // dailyLimit check
-        if (m_spentToday + _value >= m_spentToday && m_spentToday + _value <= m_dailyLimit) {
-            m_spentToday += _value;
-            return true;
-        }
-        return false;
+        return true;
     }
+
     // determines today's index.
     function today() private constant returns (uint) { return now / 1 days; }
 
@@ -391,7 +390,7 @@ contract tokenswap is multisig, multiowned {
     function safeToAdd(uint a, uint b) private constant returns (bool) {
       return (a + b >= a && a + b >= b);
     }
-  
+
     // A helper to notify if overflow occurs for multiplication
     function safeToMultiply(uint _a, uint _b) private constant returns (bool) {
       return (_b == 0 || ((_a * _b) / _b) == _a);
@@ -432,7 +431,81 @@ contract tokenswap is multisig, multiowned {
 	    if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
             tokenCtr.mintReserve(_beneficiary);
         }
-    } 
+    }
+}
+
+contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
+
+    uint[256] fynAccounts;
+    mapping (uint => uint) fynAccountIndex;
+    uint totalMilestones;
+
+    // MileStone structure to remember details of the milestone strategy.
+    struct MileStone {
+        uint date;
+        uint percentage;
+    }
+
+    // To store Milestone information.
+    mapping (uint => MileStone) milestoneStorage;
+
+    // Variable to store percentage immediately withdrawable.
+    uint public immediateQuantum;
+
+
+
+    // to check if the sum of all the percentages being entered
+    // adds up to 100. Calls Percentage Check to verfiy.
+    modifier percentageSumComplete (uint[] _percentagesToCheck) {
+        require (percentageCheck (_percentagesToCheck));
+        _;
+    }
+
+
+
+    // for use in modifier onlyFYN.
+    function isFYN (address _addr) internal returns (bool) {
+        return fynAccountIndex[uint(_addr)] >= 0;
+    }
+
+    //for use in modifier percentageSumComplete
+    function percentageCheck (uint[] _percentagesToCheck) internal returns (bool) {
+        uint sum;
+        for (uint i = 0; i < _percentagesToCheck.length; i++) {
+        require (_percentagesToCheck[i] > 0);
+        sum += _percentagesToCheck[i];
+        }
+        if(sum == 100) {
+            return true;
+        }
+        return false;
+    }
+
+
+    // constructor to initialize the FYN accounts, milestone dates and corresponding
+    // percentages. Dates must be entered in chronological order. Percentages
+    // must add upto 100 for successful initialization.
+    function amountWithdrawalStrategy (address[] _FYN, uint[] _dates, uint[] _percentage ) internal
+    onlyCorrectDateOrder(_dates)
+    percentageSumComplete(_percentage) {
+
+        require (_dates.length + 1 == _percentage.length);
+        uint i = 0;
+        for (i; i < _FYN.length; i++ ) {
+            fynAccounts [i] = uint(_FYN[i]);
+            fynAccountIndex[uint(_FYN[i])] = i;
+        }
+
+        immediateQuantum = _percentage[0];
+
+        i = 0;
+        for(i; i < _dates.length; i++) {
+            milestoneStorage[i].date = _dates[i];
+            milestoneStorage[i].percentage = _percentage[i+1];
+        }
+        totalMilestones = i+1;
+    }
+
 }
 
 // usage:
