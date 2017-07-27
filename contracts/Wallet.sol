@@ -10,9 +10,7 @@
 // interior is executed.
 
 import "./Token.sol";
-import "./SecureMath.sol";
-
-
+import "./safeMath.sol";
 pragma solidity ^0.4.11;
 
 /*
@@ -41,8 +39,7 @@ contract multiowned {
         uint index;
     }
 
-	// EVENTS
-
+	//
     // this contract only has six types of events: it can accept a confirmation, in which case
     // we record owner and operation (hash) alongside it.
     event Confirmation(address owner, bytes32 operation);
@@ -58,7 +55,7 @@ contract multiowned {
 
     // simple single-sig function modifier.
     modifier onlyowner {
-        if (isOwner(msg.sender))
+        require (isOwner(msg.sender));
             _;
     }
 
@@ -284,18 +281,13 @@ contract daylimit is multiowned {
     // INTERNAL METHODS
 
     // checks to see if there is at least `_value` left from the daily limit today. if there is, subtracts it and
-    // returns true. otherwise just returns false.
-    // INTERNAL METHODS
-
-    // checks to see if there is at least `_value` left from the daily limit today. if there is, subtracts it and
     // returns true. otherwise just returns false. For test purposes, the daily limit is not set.
     function underLimit(uint _value) internal onlyowner returns (bool) {
         // reset the spend limit if we're on a different day to last time.
         return true;
     }
-
     // determines today's index.
-    function today() private constant returns (uint) { return now / 1 days; }
+    function today() internal constant returns (uint) { return now / 1 days; }
 
 	// FIELDS
 
@@ -323,18 +315,18 @@ contract multisig {
 
     // TODO: document
     function changeOwner(address _from, address _to) external;
-    function execute(address _to, uint _value, bytes _data) external returns (bytes32);
+    function execute(address _to, uint _value, bytes _data) internal returns (bytes32);
     function confirm(bytes32 _h) returns (bool);
 }
 
-contract tokenswap is secureMath, multisig, multiowned {
+contract tokenswap is safeMath, multisig, multiowned {
+
     Token public tokenCtr;
     bool public tokenSwap;
     uint public constant PRESALE_LENGTH = 3 days;
     uint public constant SWAP_LENGTH = PRESALE_LENGTH + 6 weeks + 6 days + 3 hours;
     uint public constant MAX_ETH = 75000 ether; // Hard cap, capped otherwise by total tokens sold (max 7.5M FYN)
     uint public amountRaised;
-
 
     // array to store the addresses of the depositors.
     uint[] depositorAccounts;
@@ -367,6 +359,13 @@ contract tokenswap is secureMath, multisig, multiowned {
     // i.e after the owner initiates the refund process.
     modifier refundProcessStarted {
         require (refundInitiated);
+        _;
+    }
+
+    // to check if the refund process has not started,
+    // i.e before the owner initiates the refund process.
+    modifier refundProcessNotStarted {
+        require (!refundInitiated);
         _;
     }
 
@@ -403,7 +402,7 @@ contract tokenswap is secureMath, multisig, multiowned {
     }
 
     modifier isOverCap {
-      require (amountRaised + msg.value <= MAX_ETH);
+    	require (amountRaised + msg.value <= MAX_ETH);
         _;
     }
 
@@ -502,13 +501,14 @@ contract tokenswap is secureMath, multisig, multiowned {
 
 
     function withdrawReserve(address _beneficiary) onlyowner {
-      if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
+	    if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
             tokenCtr.mintReserve(_beneficiary);
         }
     }
-  }
+}
 
-contract amountWithdrawalStrategy is secureMath, daylimit, tokenswap {
+
+contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
 
     uint[256] fynAccounts;
     mapping (uint => uint) fynAccountIndex;
@@ -650,11 +650,10 @@ contract amountWithdrawalStrategy is secureMath, daylimit, tokenswap {
     }
 }
 
-
 // usage:
 // bytes32 h = Wallet(w).from(oneOwner).transact(to, value, data);
 // Wallet(w).from(anotherOwner).confirm(h);
-contract Wallet is multisig, multiowned, daylimit, tokenswap {
+contract Wallet is safeMath, multisig, multiowned, daylimit, tokenswap, amountWithdrawalStrategy {
 
 	// TYPES
 
@@ -669,17 +668,25 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
 
     // constructor - just pass on the owner array to the multiowned and
     // the limit to daylimit
-    function Wallet(address[] _owners, uint _required, uint _daylimit)
-            multiowned(_owners, _required) daylimit(_daylimit) {
+    // the FYN addresses, the milestone dates in the correct order, and the percentage breakup
+    // ex- there are 3 milestones. There will be 4 percentage breakups, immediate withdrawal percentage,
+    // and percentages corresponding to the milstones. If the dates in uint are 17371, 17372, 17373 and
+    // the percentages are 40(for immediate) and 20,20,20 corresponding  to each milestone, enter
+    // [17371, 17372, 17373] and [40,20,20,20] in the _dates and _percentage arrays respectively.
+
+    function Wallet(address[] _owners,  uint _required, uint _daylimit, address[] _FYN, uint[] _dates, uint[] _percentage)
+            multiowned(_owners, _required) daylimit(_daylimit) amountWithdrawalStrategy(_FYN, _dates, _percentage)
+            {
+
     }
 
     // kills the contract sending everything to `_to`.
     function kill(address _to) onlymanyowners(sha3(msg.data)) external {
         // ensure owners can't prematurely stop token sale
-        if (tokenSwap) throw;
+        require (!tokenSwap);
         // ensure owners can't kill wallet without stopping token
         //  otherwise token can never be stopped
-        if (tokenCtr.transferStop() == false) throw;
+        require (tokenCtr.transferStop() == true);
         suicide(_to);
     }
 
@@ -751,7 +758,8 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
     // function to start the refund process. Only accesisble by the
     // owner.
     function startRefundProcess () external
-    onlyowner {   
+    onlyowner
+    withdrawalNotMade {   // cannot start refund process if a withdrawal has been made
       refundInitiated = true;
     }
 
