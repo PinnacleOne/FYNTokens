@@ -10,7 +10,7 @@
 // interior is executed.
 
 import "./Token.sol";
-
+import "./safeMath.sol";
 pragma solidity ^0.4.11;
 
 /*
@@ -39,8 +39,7 @@ contract multiowned {
         uint index;
     }
 
-	// EVENTS
-
+	//
     // this contract only has six types of events: it can accept a confirmation, in which case
     // we record owner and operation (hash) alongside it.
     event Confirmation(address owner, bytes32 operation);
@@ -56,9 +55,16 @@ contract multiowned {
 
     // simple single-sig function modifier.
     modifier onlyowner {
-        if (isOwner(msg.sender))
+        require (isOwner(msg.sender));
             _;
     }
+
+    // to check if the recipient is owner
+    modifier onlyWhiteListed(address _addr) {
+        require (isOwner(_addr));
+            _;
+    }
+
     // multi-sig function modifier: the operation must have an intrinsic hash in order
     // that later attempts can be realised as the same underlying operation and
     // thus count as confirmations.
@@ -275,26 +281,13 @@ contract daylimit is multiowned {
     // INTERNAL METHODS
 
     // checks to see if there is at least `_value` left from the daily limit today. if there is, subtracts it and
-    // returns true. otherwise just returns false.
+    // returns true. otherwise just returns false. For test purposes, the daily limit is not set.
     function underLimit(uint _value) internal onlyowner returns (bool) {
         // reset the spend limit if we're on a different day to last time.
-        if (today() > m_lastDay) {
-            m_spentToday = 0;
-            m_lastDay = today();
-        }
-        // check if it's sending nothing (with or without data). This needs Multitransact
-        if (_value == 0) return false;
-
-        // check to see if there's enough left - if so, subtract and return true.
-        // overflow protection                    // dailyLimit check
-        if (m_spentToday + _value >= m_spentToday && m_spentToday + _value <= m_dailyLimit) {
-            m_spentToday += _value;
-            return true;
-        }
-        return false;
+        return true;
     }
     // determines today's index.
-    function today() private constant returns (uint) { return now / 1 days; }
+    function today() internal constant returns (uint) { return now / 1 days; }
 
 	// FIELDS
 
@@ -322,11 +315,12 @@ contract multisig {
 
     // TODO: document
     function changeOwner(address _from, address _to) external;
-    function execute(address _to, uint _value, bytes _data) external returns (bytes32);
+    function execute(address _to, uint _value, bytes _data) internal returns (bytes32);
     function confirm(bytes32 _h) returns (bool);
 }
 
-contract tokenswap is multisig, multiowned {
+contract tokenswap is safeMath, multisig, multiowned {
+
     Token public tokenCtr;
     bool public tokenSwap;
     uint public constant PRESALE_LENGTH = 3 days;
@@ -334,34 +328,94 @@ contract tokenswap is multisig, multiowned {
     uint public constant MAX_ETH = 75000 ether; // Hard cap, capped otherwise by total tokens sold (max 7.5M FYN)
     uint public amountRaised;
 
+    // array to store the addresses of the depositors.
+    uint[] depositorAccounts;
+
+    // boolean to store the status of the refund process,
+    // in control of the owners of the contract.
+    bool public refundInitiated;
+
+    // to store token buyer status. Stores if the buyer has
+    // bought tokens before as true or false.
+    mapping (uint => bool) existingDepositor;
+
+    // to store the addresses of beneficiaries corresponding to
+    // each depositor
+    mapping (uint => uint[]) beneficiaries;
+
+    // to store if the beneficiary corresponding to a depositor
+    // already exists.
+    mapping (uint => mapping(uint => bool)) existingBeneficiary;
+
+    // to store the amount corresponding to each beneficiary, corresponding
+    // to each depositor.
+    mapping (uint => mapping(uint => uint)) etherAmountDeposited;
+
+    // to store the refund status each each beneficiary corresponding
+    // to the depositor
+    mapping (uint => mapping(uint => bool)) refundReceived;
+
+    // to check if the refund process has started,
+    // i.e after the owner initiates the refund process.
+    modifier refundProcessStarted {
+        require (refundInitiated);
+        _;
+    }
+
+    // to check if the refund process has not started,
+    // i.e before the owner initiates the refund process.
+    modifier refundProcessNotStarted {
+        require (!refundInitiated);
+        _;
+    }
+
+    // to check if the Beneficiary that the depositor claims refund for
+    // is a Beneficiary.
+    modifier isBeneficiary (address _addr) {
+        require (existingBeneficiary[uint(msg.sender)][uint(_addr)]);
+        _;
+    }
+
+    // to check if the user making the refund request is a depositor.
+    modifier isDepositor {
+        require (existingDepositor[uint(msg.sender)]);
+        _;
+    }
+
+    // to check the refund has already been claimed for the particular beneficiary
+    // by the depositor.
+    modifier refundNotClaimed (address _addr) {
+        require (!refundReceived[uint(msg.sender)][uint(_addr)]);
+        _;
+    }
+
     modifier isUnderPresaleMinimum {
         if (tokenCtr.creationTime() + PRESALE_LENGTH > now) {
-            if (msg.value < 20 ether) throw;
+            require (msg.value >= 20 ether);
         }
         _;
     }
 
     modifier isZeroValue {
-        if (msg.value == 0) throw;
+        require (msg.value != 0);
         _;
     }
 
     modifier isOverCap {
-    	if (amountRaised + msg.value > MAX_ETH) throw;
+    	require (amountRaised + msg.value <= MAX_ETH);
         _;
     }
 
     modifier isOverTokenCap {
-        if (!safeToMultiply(tokenCtr.currentSwapRate(), msg.value)) throw;
+        require (safeToMultiply(tokenCtr.currentSwapRate(), msg.value));
         uint tokensAmount = tokenCtr.currentSwapRate() * msg.value;
-        if(!safeToAdd(tokenCtr.totalSupply(),tokensAmount)) throw;
-        if (tokenCtr.totalSupply() + tokensAmount > tokenCtr.tokenCap()) throw;
+        require (safeToAdd(tokenCtr.totalSupply(),tokensAmount));
+        require (tokenCtr.totalSupply() + tokensAmount <= tokenCtr.tokenCap());
         _;
-
     }
 
     modifier isSwapStopped {
-        if (!tokenSwap) throw;
+        require (tokenSwap);
         _;
     }
 
@@ -387,17 +441,6 @@ contract tokenswap is multisig, multiowned {
         }
     }
 
-    // A helper to notify if overflow occurs for addition
-    function safeToAdd(uint a, uint b) private constant returns (bool) {
-      return (a + b >= a && a + b >= b);
-    }
-  
-    // A helper to notify if overflow occurs for multiplication
-    function safeToMultiply(uint _a, uint _b) private constant returns (bool) {
-      return (_b == 0 || ((_a * _b) / _b) == _a);
-    }
-
-
     function startTokenSwap() onlyowner {
         tokenSwap = true;
     }
@@ -407,12 +450,38 @@ contract tokenswap is multisig, multiowned {
     }
 
     function setTokenContract(address newTokenContractAddr) onlyowner {
-        if (newTokenContractAddr == address(0x0)) throw;
+        require (newTokenContractAddr != address(0x0));
         // Allow setting only once
-        if (tokenCtr != address(0x0)) throw;
-
+        require (tokenCtr == address(0x0));
         tokenCtr = Token(newTokenContractAddr);
     }
+
+    // to record the transaction for the buyTokens function.
+    // Stores the ether amount deposited correspoding to each depositor, correspoding
+    // to a particular beneficiary.
+    function recordDepositor (address _addr, uint _value) internal {
+
+      if (existingDepositor[uint(msg.sender)]) {
+        if (existingBeneficiary[uint(msg.sender)][uint(_addr)]) {
+          etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+        }
+
+        else {
+            beneficiaries[uint(msg.sender)].push(uint(_addr));
+            existingBeneficiary[uint(msg.sender)][uint(_addr)] = true;
+            etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+
+        }
+      }
+      else {
+            depositorAccounts.push(uint(msg.sender));
+            beneficiaries[uint(msg.sender)].push(uint(_addr));
+            existingDepositor[uint(msg.sender)] = true;
+            existingBeneficiary[uint(msg.sender)][uint(_addr)] = true;
+            etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+        }
+    }
+
 
     function buyTokens(address _beneficiary)
     payable
@@ -422,23 +491,169 @@ contract tokenswap is multisig, multiowned {
     isOverTokenCap
     isSwapStopped
     areConditionsSatisfied {
+
         Deposit(msg.sender, msg.value);
         tokenCtr.mintTokens(_beneficiary, msg.value);
-        if (!safeToAdd(amountRaised, msg.value)) throw;
+        require (safeToAdd(amountRaised, msg.value));
         amountRaised += msg.value;
+        recordDepositor (_beneficiary, msg.value); //records the deposit.
     }
+
 
     function withdrawReserve(address _beneficiary) onlyowner {
 	    if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
             tokenCtr.mintReserve(_beneficiary);
         }
-    } 
+    }
+}
+
+
+contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
+
+    uint[256] fynAccounts;
+    mapping (uint => uint) fynAccountIndex;
+    uint totalMilestones;
+
+    // MileStone structure to remember details of the milestone strategy.
+    struct MileStone {
+        uint date;
+        uint percentage;
+    }
+
+    // To store Milestone information.
+    mapping (uint => MileStone) milestoneStorage;
+
+    // Variable to store total withdrawal till date.
+    uint public withdrawnTillToday;
+
+    // Variable to store percentage immediately withdrawable.
+    uint public immediateQuantum;
+
+    // Boolean to store if a withdrawal has been made.
+    bool public withdrawalStatus;
+
+    //to check if the withdrawal is under the milestone limit
+    modifier isUnderMilestoneLimit (uint _amount) {
+        require (mileStoneChecker(_amount));
+        _;
+    }
+
+    //modifier to check FYN accounts
+    modifier onlyFYN (address accountToCheck) {
+        require (isFYN(accountToCheck));
+        _;
+    }
+
+    // to check if the dates being entered are in chronological
+    // order. Calls checkDateOrder to verify.
+    modifier onlyCorrectDateOrder (uint[] _datesToCheck) {
+        require (checkDateOrder (_datesToCheck));
+        _;
+    }
+
+    // to check if the sum of all the percentages being entered
+    // adds up to 100. Calls Percentage Check to verfiy.
+    modifier percentageSumComplete (uint[] _percentagesToCheck) {
+        require (percentageCheck (_percentagesToCheck));
+        _;
+    }
+
+    modifier withdrawalNotMade () {
+      require (!withdrawalStatus);
+      _;
+    }
+
+    // to get the FYN account corresponding an index,according to zero indexing.
+    function getFynAccount (uint fynAccountIndex) external constant returns (address) {
+        return address(fynAccounts[fynAccountIndex]);
+    }
+
+    // for use in modifier onlyFYN.
+    function isFYN (address _addr) internal returns (bool) {
+        return fynAccountIndex[uint(_addr)] >= 0;
+    }
+
+    // for use in modifier onlyCorrectDateOrder
+    function checkDateOrder (uint[] _datesToCheck) internal returns (bool) {
+        for (uint i = 0; i < _datesToCheck.length-1; i++) {
+            if(_datesToCheck[i] > _datesToCheck[i+1]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    //for use in modifier percentageSumComplete
+    function percentageCheck (uint[] _percentagesToCheck) internal returns (bool) {
+        uint sum;
+        for (uint i = 0; i < _percentagesToCheck.length; i++) {
+        require (_percentagesToCheck[i] > 0);
+        sum += _percentagesToCheck[i];
+        }
+        if(sum == 100) {
+            return true;
+        }
+        return false;
+    }
+
+
+    // constructor to initialize the FYN accounts, milestone dates and corresponding
+    // percentages. Dates must be entered in chronological order. Percentages
+    // must add upto 100 for successful initialization.
+    function amountWithdrawalStrategy (address[] _FYN, uint[] _dates, uint[] _percentage ) internal
+    onlyCorrectDateOrder(_dates)
+    percentageSumComplete(_percentage) {
+
+        require (_dates.length + 1 == _percentage.length);
+        uint i = 0;
+        for (i; i < _FYN.length; i++ ) {
+            fynAccounts [i] = uint(_FYN[i]);
+            fynAccountIndex[uint(_FYN[i])] = i;
+        }
+
+        immediateQuantum = _percentage[0];
+
+        i = 0;
+        for(i; i < _dates.length; i++) {
+            milestoneStorage[i].date = _dates[i];
+            milestoneStorage[i].percentage = _percentage[i+1];
+        }
+        totalMilestones = i+1;
+    }
+
+    // to record the transaction after each successful withdrawal.
+    function recordTransaction (uint _amount) internal {
+      withdrawnTillToday += _amount;
+      withdrawalStatus = true;
+    }
+
+    // to check if the amount being withdrawn follows the
+    // milestone strategy. For use in modifier isUnderMilestoneLimit.
+    function mileStoneChecker (uint _amount) internal returns (bool) {
+
+        if(_amount == 0 ) return false;
+        uint sumPercentage = immediateQuantum;
+
+        uint i;
+        for (i = 0; i < totalMilestones; i++) {
+          if(today() < milestoneStorage[i].date) {
+
+            return (withdrawnTillToday + _amount <= (sumPercentage * amountRaised/100) && safeToAdd(withdrawnTillToday,_amount));
+          }
+
+          else {
+            sumPercentage += milestoneStorage[i].percentage;
+          }
+        }
+
+        return (withdrawnTillToday + _amount <= amountRaised && safeToAdd(withdrawnTillToday,_amount));
+    }
 }
 
 // usage:
 // bytes32 h = Wallet(w).from(oneOwner).transact(to, value, data);
 // Wallet(w).from(anotherOwner).confirm(h);
-contract Wallet is multisig, multiowned, daylimit, tokenswap {
+contract Wallet is safeMath, multisig, multiowned, daylimit, tokenswap, amountWithdrawalStrategy {
 
 	// TYPES
 
@@ -453,17 +668,25 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
 
     // constructor - just pass on the owner array to the multiowned and
     // the limit to daylimit
-    function Wallet(address[] _owners, uint _required, uint _daylimit)
-            multiowned(_owners, _required) daylimit(_daylimit) {
+    // the FYN addresses, the milestone dates in the correct order, and the percentage breakup
+    // ex- there are 3 milestones. There will be 4 percentage breakups, immediate withdrawal percentage,
+    // and percentages corresponding to the milstones. If the dates in uint are 17371, 17372, 17373 and
+    // the percentages are 40(for immediate) and 20,20,20 corresponding  to each milestone, enter
+    // [17371, 17372, 17373] and [40,20,20,20] in the _dates and _percentage arrays respectively.
+
+    function Wallet(address[] _owners,  uint _required, uint _daylimit, address[] _FYN, uint[] _dates, uint[] _percentage)
+            multiowned(_owners, _required) daylimit(_daylimit) amountWithdrawalStrategy(_FYN, _dates, _percentage)
+            {
+
     }
 
     // kills the contract sending everything to `_to`.
     function kill(address _to) onlymanyowners(sha3(msg.data)) external {
         // ensure owners can't prematurely stop token sale
-        if (tokenSwap) throw;
+        require (!tokenSwap);
         // ensure owners can't kill wallet without stopping token
         //  otherwise token can never be stopped
-        if (tokenCtr.transferStop() == false) throw;
+        require (tokenCtr.transferStop() == true);
         suicide(_to);
     }
 
@@ -478,23 +701,37 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
         buyTokens(msg.sender);
     }
 
+    // function to transfer to any owner,
+    // according to the milestone strategy.
+    // Can only be called by the owner.
+    function withdrawForOwner (address _addr, uint _value, bytes _data)
+    onlyowner
+    onlyWhiteListed (_addr)
+    isUnderMilestoneLimit (_value) {
+        recordTransaction(_value);
+        execute(_addr, _value, _data);
+    }
+
     // Outside-visible transact entry point. Executes transaction immediately if below daily spend limit.
     // If not, goes into multisig process. We provide a hash on return to allow the sender to provide
     // shortcuts for the other confirmations (allowing them to avoid replicating the _to, _value
     // and _data arguments). They still get the option of using them if they want, anyways.
-    function execute(address _to, uint _value, bytes _data) external onlyowner returns (bytes32 _r) {
+
+
+    function execute(address _to, uint _value, bytes _data) internal
+    returns (bytes32 _r) {
         // Disallow the wallet contract from calling token contract once it's set
         // so tokens can't be minted arbitrarily once the sale starts.
         // Tokens can be minted for premine before the sale opens and tokenCtr is set.
-        if (_to == address(tokenCtr)) throw;
+        require (_to != address(tokenCtr));
 
         // first, take the opportunity to check that we're under the daily limit.
-        if (underLimit(_value)) {
-            SingleTransact(msg.sender, _value, _to, _data);
-            // yes - just execute the call.
-            if(!_to.call.value(_value)(_data))
-            return 0;
-        }
+
+        SingleTransact(msg.sender, _value, _to, _data);
+        // yes - just execute the call.
+        if(!_to.call.value(_value)(_data))
+        return 0;
+
 
         // determine our operation hash.
         _r = sha3(msg.data, block.number);
@@ -516,6 +753,36 @@ contract Wallet is multisig, multiowned, daylimit, tokenswap {
             delete m_txs[_h];
             return true;
         }
+    }
+
+    // function to start the refund process. Only accesisble by the
+    // owner.
+    function startRefundProcess () external
+    onlyowner
+    withdrawalNotMade {   // cannot start refund process if a withdrawal has been made
+      refundInitiated = true;
+    }
+
+    // function to change the stored values of etherAmountDeposited
+    // and amountRaised after a refund is claimed. Also clears the
+    // token balances of the msg.sender.
+    function recordRefund (address beneficiary) internal {
+      refundReceived[uint(msg.sender)][uint(beneficiary)] = true;
+      amountRaised -= etherAmountDeposited[uint(msg.sender)][uint(beneficiary)];
+      etherAmountDeposited[uint(msg.sender)][uint(beneficiary)] = 0;
+    }
+
+    // function to claim refund. Can only be called after the owner starts
+    // the refund process. Only accesisble by depositors.
+    // Calls the record refund function.
+    function claimRefund (address _addr) external
+    refundProcessStarted
+    isDepositor
+    refundNotClaimed (_addr)
+    isBeneficiary (_addr) {
+      require (safeToSub(amountRaised, etherAmountDeposited[uint(msg.sender)][uint(_addr)] ));
+      recordRefund (_addr);
+      execute (msg.sender, etherAmountDeposited[uint(msg.sender)][uint(_addr)], "");
     }
 
     // INTERNAL METHODS
