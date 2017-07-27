@@ -434,7 +434,7 @@ contract tokenswap is multisig, multiowned {
     }
 }
 
-contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
+contract amountWithdrawalStrategy is daylimit, tokenswap {
 
     uint[256] fynAccounts;
     mapping (uint => uint) fynAccountIndex;
@@ -453,6 +453,11 @@ contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
     uint public immediateQuantum;
 
 
+    //modifier to check FYN accounts
+    modifier onlyFYN (address accountToCheck) {
+        require (isFYN(accountToCheck));
+        _;
+    }
 
     // to check if the sum of all the percentages being entered
     // adds up to 100. Calls Percentage Check to verfiy.
@@ -461,11 +466,24 @@ contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
         _;
     }
 
-
+    // to get the FYN account corresponding an index,according to zero indexing.
+    function getFynAccount (uint fynAccountIndex) external constant returns (address) {
+        return address(fynAccounts[fynAccountIndex]);
+    }
 
     // for use in modifier onlyFYN.
     function isFYN (address _addr) internal returns (bool) {
         return fynAccountIndex[uint(_addr)] >= 0;
+    }
+
+    // for use in modifier onlyCorrectDateOrder
+    function checkDateOrder (uint[] _datesToCheck) internal returns (bool) {
+        for (uint i = 0; i < _datesToCheck.length-1; i++) {
+            if(_datesToCheck[i] > _datesToCheck[i+1]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     //for use in modifier percentageSumComplete
@@ -480,7 +498,6 @@ contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
         }
         return false;
     }
-
 
     // constructor to initialize the FYN accounts, milestone dates and corresponding
     // percentages. Dates must be entered in chronological order. Percentages
@@ -507,7 +524,6 @@ contract amountWithdrawalStrategy is safeMath, daylimit, tokenswap {
     }
 
 }
-
 // usage:
 // bytes32 h = Wallet(w).from(oneOwner).transact(to, value, data);
 // Wallet(w).from(anotherOwner).confirm(h);
