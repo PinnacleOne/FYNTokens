@@ -335,34 +335,59 @@ contract tokenswap is secureMath, multisig, multiowned {
     uint public constant MAX_ETH = 75000 ether; // Hard cap, capped otherwise by total tokens sold (max 7.5M FYN)
     uint public amountRaised;
 
+
+    // array to store the addresses of the depositors.
+    uint[] depositorAccounts;
+
+    // to store token buyer status. Stores if the buyer has
+    // bought tokens before as true or false.
+    mapping (uint => bool) existingDepositor;
+
+    // to store the addresses of beneficiaries corresponding to
+    // each depositor
+    mapping (uint => uint[]) beneficiaries;
+
+    // to store if the beneficiary corresponding to a depositor
+    // already exists.
+    mapping (uint => mapping(uint => bool)) existingBeneficiary;
+
+    // to store the amount corresponding to each beneficiary, corresponding
+    // to each depositor.
+    mapping (uint => mapping(uint => uint)) etherAmountDeposited;
+
+    // to store the refund status each each beneficiary corresponding
+    // to the depositor
+    mapping (uint => mapping(uint => bool)) refundReceived;
+
+
+
     modifier isUnderPresaleMinimum {
         if (tokenCtr.creationTime() + PRESALE_LENGTH > now) {
-            if (msg.value < 20 ether) throw;
+            require (msg.value >= 20 ether);
         }
         _;
     }
 
     modifier isZeroValue {
-        if (msg.value == 0) throw;
+        require (msg.value != 0);
         _;
     }
 
     modifier isOverCap {
-    	if (amountRaised + msg.value > MAX_ETH) throw;
+      require (amountRaised + msg.value <= MAX_ETH);
         _;
     }
 
     modifier isOverTokenCap {
-        if (!safeToMultiply(tokenCtr.currentSwapRate(), msg.value)) throw;
+        require (safeToMultiply(tokenCtr.currentSwapRate(), msg.value));
         uint tokensAmount = tokenCtr.currentSwapRate() * msg.value;
-        if(!safeToAdd(tokenCtr.totalSupply(),tokensAmount)) throw;
-        if (tokenCtr.totalSupply() + tokensAmount > tokenCtr.tokenCap()) throw;
+        require (safeToAdd(tokenCtr.totalSupply(),tokensAmount));
+        require (tokenCtr.totalSupply() + tokensAmount <= tokenCtr.tokenCap());
         _;
-
     }
 
     modifier isSwapStopped {
-        if (!tokenSwap) throw;
+        require (tokenSwap);
         _;
     }
 
@@ -397,12 +422,38 @@ contract tokenswap is secureMath, multisig, multiowned {
     }
 
     function setTokenContract(address newTokenContractAddr) onlyowner {
-        if (newTokenContractAddr == address(0x0)) throw;
+        require (newTokenContractAddr != address(0x0));
         // Allow setting only once
-        if (tokenCtr != address(0x0)) throw;
-
+        require (tokenCtr == address(0x0));
         tokenCtr = Token(newTokenContractAddr);
     }
+
+    // to record the transaction for the buyTokens function.
+    // Stores the ether amount deposited correspoding to each depositor, correspoding
+    // to a particular beneficiary.
+    function recordDepositor (address _addr, uint _value) internal {
+
+      if (existingDepositor[uint(msg.sender)]) {
+        if (existingBeneficiary[uint(msg.sender)][uint(_addr)]) {
+          etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+        }
+
+        else {
+            beneficiaries[uint(msg.sender)].push(uint(_addr));
+            existingBeneficiary[uint(msg.sender)][uint(_addr)] = true;
+            etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+
+        }
+      }
+      else {
+            depositorAccounts.push(uint(msg.sender));
+            beneficiaries[uint(msg.sender)].push(uint(_addr));
+            existingDepositor[uint(msg.sender)] = true;
+            existingBeneficiary[uint(msg.sender)][uint(_addr)] = true;
+            etherAmountDeposited[uint(msg.sender)][uint(_addr)] += _value;
+        }
+    }
+
 
     function buyTokens(address _beneficiary)
     payable
@@ -412,14 +463,17 @@ contract tokenswap is secureMath, multisig, multiowned {
     isOverTokenCap
     isSwapStopped
     areConditionsSatisfied {
+
         Deposit(msg.sender, msg.value);
         tokenCtr.mintTokens(_beneficiary, msg.value);
-        if (!safeToAdd(amountRaised, msg.value)) throw;
+        require (safeToAdd(amountRaised, msg.value));
         amountRaised += msg.value;
+        recordDepositor (_beneficiary, msg.value); //records the deposit.
     }
 
+
     function withdrawReserve(address _beneficiary) onlyowner {
-	    if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
+      if (tokenCtr.creationTime() + SWAP_LENGTH < now) {
             tokenCtr.mintReserve(_beneficiary);
         }
     }
