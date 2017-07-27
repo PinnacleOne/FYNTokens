@@ -449,13 +449,31 @@ contract amountWithdrawalStrategy is daylimit, tokenswap {
     // To store Milestone information.
     mapping (uint => MileStone) milestoneStorage;
 
+    // Variable to store total withdrawal till date.
+    uint public withdrawnTillToday;
+
     // Variable to store percentage immediately withdrawable.
     uint public immediateQuantum;
 
+    // Boolean to store if a withdrawal has been made.
+    bool public withdrawalStatus;
+
+    //to check if the withdrawal is under the milestone limit
+    modifier isUnderMilestoneLimit (uint _amount) {
+        require (mileStoneChecker(_amount));
+        _;
+    }
 
     //modifier to check FYN accounts
     modifier onlyFYN (address accountToCheck) {
         require (isFYN(accountToCheck));
+        _;
+    }
+
+    // to check if the dates being entered are in chronological
+    // order. Calls checkDateOrder to verify.
+    modifier onlyCorrectDateOrder (uint[] _datesToCheck) {
+        require (checkDateOrder (_datesToCheck));
         _;
     }
 
@@ -464,6 +482,11 @@ contract amountWithdrawalStrategy is daylimit, tokenswap {
     modifier percentageSumComplete (uint[] _percentagesToCheck) {
         require (percentageCheck (_percentagesToCheck));
         _;
+    }
+
+    modifier withdrawalNotMade () {
+      require (!withdrawalStatus);
+      _;
     }
 
     // to get the FYN account corresponding an index,according to zero indexing.
@@ -499,6 +522,7 @@ contract amountWithdrawalStrategy is daylimit, tokenswap {
         return false;
     }
 
+
     // constructor to initialize the FYN accounts, milestone dates and corresponding
     // percentages. Dates must be entered in chronological order. Percentages
     // must add upto 100 for successful initialization.
@@ -523,7 +547,36 @@ contract amountWithdrawalStrategy is daylimit, tokenswap {
         totalMilestones = i+1;
     }
 
+    // to record the transaction after each successful withdrawal.
+    function recordTransaction (uint _amount) internal {
+      withdrawnTillToday += _amount;
+      withdrawalStatus = true;
+    }
+
+    // to check if the amount being withdrawn follows the
+    // milestone strategy. For use in modifier isUnderMilestoneLimit.
+    function mileStoneChecker (uint _amount) internal returns (bool) {
+
+        if(_amount == 0 ) return false;
+        uint sumPercentage = immediateQuantum;
+
+        uint i;
+        for (i = 0; i < totalMilestones; i++) {
+          if(today() < milestoneStorage[i].date) {
+
+            return (withdrawnTillToday + _amount <= (sumPercentage * amountRaised/100) && safeToAdd(withdrawnTillToday,_amount));
+          }
+
+          else {
+            sumPercentage += milestoneStorage[i].percentage;
+          }
+        }
+
+        return (withdrawnTillToday + _amount <= amountRaised && safeToAdd(withdrawnTillToday,_amount));
+    }
 }
+
+
 // usage:
 // bytes32 h = Wallet(w).from(oneOwner).transact(to, value, data);
 // Wallet(w).from(anotherOwner).confirm(h);
